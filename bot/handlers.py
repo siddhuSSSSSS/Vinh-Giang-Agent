@@ -413,7 +413,24 @@ async def post_init(app: Application) -> None:
     repo = await open_repo(str(config.DATABASE_PATH))
     app.bot_data["repo"] = repo
     me = await app.bot.get_me()          # pre-flight 1: Telegram token
-    logger.info("pre-flight ok: connected as @%s", me.username)
+    logger.info("pre-flight 1 ok: connected as @%s", me.username)
+
+    # pre-flight 2: OpenAI key (zero-cost models.list) - a bad key must stop
+    # polling BEFORE the bot ever claims to be alive (Planning.md step 12)
+    from openai import AsyncOpenAI
+
+    try:
+        probe = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+        await probe.models.list()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("pre-flight 2 FAILED: OpenAI key rejected (%s: %s)",
+                     type(exc).__name__, exc)
+        await app.stop_running()
+        raise SystemExit(
+            "startup aborted: OPENAI_API_KEY is invalid or rejected by OpenAI. "
+            "Fix the key in .env and restart - polling never started."
+        ) from None
+    logger.info("pre-flight 2 ok: OpenAI key accepted")
 
     # Phase 4 wiring: hourly sweep + re-scan waiting_24h users for their gate jobs.
     # NOTE: send_fn is built PER USER at send time (chat_id differs per user);

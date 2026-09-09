@@ -1,10 +1,11 @@
-"""Application wiring, pre-flight checks, polling.
+"""Application wiring, pre-flight checks, logging, polling.
 
-Phase 3 deliverable. Startup order per Planning.md Phase 6:
+Phase 6 deliverable. Startup order per Planning.md:
 1. config validation (fail-fast, one clear error, never a traceback)
-2. handlers wired; post_init performs the Telegram-token pre-flight (get_me)
-   and opens the database
-3. the Phase 4 scheduler's jobs register here once that phase lands
+2. logging with third-party loggers pinned to WARNING (plan's 428 line)
+3. handlers wired; post_init runs BOTH pre-flight checks:
+   (1) telegram get_me  (2) openai models.list (zero-cost); on any failure one
+   clear message names the failing check and polling never starts
 4. polling starts on the standard cloud endpoint (no local server)
 """
 
@@ -14,9 +15,17 @@ import logging
 
 from bot import config, handlers
 
+_NOISY_LOGGERS = ("httpx", "httpcore", "apscheduler", "telegram", "telegram.ext")
+
+
+def _setup_logging() -> None:
+    logging.basicConfig(level=config.LOG_LEVEL)
+    for name in _NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
 
 def main() -> None:
-    logging.basicConfig(level=config.LOG_LEVEL)
+    _setup_logging()
     try:
         config.validate()
     except config.ConfigError as exc:

@@ -232,11 +232,12 @@ unknowns are empirical rather than analytical.
 | 3 | Conversation engine, state machine, tool registry, handlers | ~1.5 days | ✅ DONE — 22 engine tests incl. gherkin suite; graph + 24h gate enforced server-side |
 | 4 | Proactive scheduling, hourly sweep, `/advance` checks | ~1 day | ✅ DONE — 26 rule-engine + gherkin tests; consolidated proactive messages |
 | 5 | Loom parsing + metrics + voice fallback | ~½ day | ✅ DONE — spike numbers reproduced exactly; 18 tests; fail-soft verified |
-| 6 | Demo polish, runbook, error handling | ~½ day | next — mostly pre-built; OpenAI pre-flight + runbook + logging pins remain |
+| 6 | Demo polish, runbook, error handling | ~½ day | ✅ DONE — OpenAI pre-flight wired, loggers pinned, runbook + judgment calls in README, 7 tests |
 | 7 | Research-backed coaching upgrades (see §7 note) | ~1 day | queued — Planning.md Phase 7 |
 
-**Test count so far: 152 passing** (unit + scripted scenarios + Gherkin regression/NFR
-suites), ruff clean throughout.
+**Test count: 159 passing** (unit + scripted scenarios + Gherkin regression/NFR
+suites), ruff clean throughout. **All planned phases (0.5–6) complete.**
+Only external dependency for a live demo: the OpenAI + Telegram credentials.
 
 The Phase 0.5 spike ran against a real Loom recording: oEmbed resolves `duration` even
 at the account's default sharing visibility, desktop copy-paste preserves `M:SS`
@@ -318,6 +319,61 @@ has full access — the passcode is the only gate, entered on `/start`. Everyone
 15-minute lockout after 5 failed attempts, per-user rate limiting, and secrets confined
 to a gitignored `.env`. A hard spend cap should be set on the OpenAI key from the
 dashboard as the real backstop.
+
+---
+
+## 8b. Demo Day Runbook
+
+**Pre-demo checklist**
+
+1. `.env` filled in (all three required vars).
+2. `python -m bot.main` → both pre-flight messages appear ("pre-flight 1 ok",
+   "pre-flight 2 ok: OpenAI key accepted") *before* polling starts.
+3. Spend cap confirmed on the OpenAI dashboard.
+4. `/wipe` your own test account for a clean slate.
+5. A Loom account ready (free Starter tier is fine for the 5-minute path).
+
+**Suggested talking-point script** (mapped to the stage graph)
+
+| Stage beat | What to show |
+|---|---|
+| `/start` + passcode | warm onboarding conversation — one question at a time, not a form |
+| Onboarding end | the 5 recording questions, tailored to what was shared |
+| Submission | Loom link + pasted transcript; oEmbed duration fetch; metrics computed in code |
+| `/advance 2` | 24h hold, then the audit days: Day 1 auditory-only, Day 2 shares the Loom link back |
+| Day 3 | cross-signal synthesis into 2-3 grounded habit choices; user picks |
+| Weekly cycle | daily check-ins, trigger design; `/advance 9` with 2 missed days → why-before-shrink nudge |
+| Habit transition | the Kaizen reveal + measured before/after on the user's own numbers |
+
+**`/advance [N]` cheat-sheet**
+
+`/advance N` bumps the day-offset; it never sets an absolute day. Effective day =
+real elapsed days since the per-user anchor + offset. So `/advance 5` on day 3
+lands on day 8. Each simulated day runs the same checks a real day would.
+
+**If something breaks**
+
+- Loom link/transcript submission fails → offer the voice-message fallback; the
+  user picks self-report or full-metrics fresh each time.
+- oEmbed can't resolve (restricted video) → metrics fall back to Plan-B duration
+  and the agent says so transparently.
+- Transcript won't parse for pauses → five metrics still compute; the agent says
+  so instead of writing misleading zeros.
+- An LLM call fails mid-turn → the user's message is durable and they get one
+  graceful "hit a snag" line; the bot keeps polling.
+
+**Judgment calls to be ready to defend** (fuller rationale in Planning.md)
+
+1. Raw `python-telegram-bot` + a hand-written tool loop, not Hermes — full visibility
+   of the state model for learning purposes.
+2. SQLite + rolling-summary buffer, not Obsidian/Mem0/Supermemory — our need is
+   structured per-user state, not semantic retrieval.
+3. The agent leads with grounded options; the user always decides (Principle 4) —
+   Samyak's brief wins over siddhu's original full-autonomy notes, documented.
+4. Scope honesty — the framework is hard-coded; what the user genuinely chooses
+   is which habit and what exercise. We say so rather than pretend.
+5. The Loom pivot — removing the local-server/ffmpeg/Whisper pipeline before it
+   was ever built: less infra, no deprecation risk, zero per-submission ASR cost
 
 ---
 
