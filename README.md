@@ -210,26 +210,28 @@ unknowns are empirical rather than analytical.
 
 **Next, in order:**
 
-| | Work | Est. |
-|---|---|---|
-| **0.5** | **Media pipeline spike** — the only genuine unknowns live here | ~½ day |
-| 0 | Scaffolding, config, CI hygiene | ~½ day |
-| 1 + 2 | LLM client + persona; schema + repo (parallel) | ~1 day |
-| 3 | Conversation engine, state machine, tool loop | ~1.5 days |
-| 4 | Proactive scheduling, canonical clock, `/advance` | ~1 day |
-| 5 | Transcription + metrics | ~½ day |
-| 6 | Demo polish, runbook, error handling | ~½ day |
+| | Work | Est. | Status |
+|---|---|---|---|
+| 0.5 | Loom transcript-parsing spike | ~½ day | ✅ DONE — all gates passed, real recording, see `Phase-0.5-Spike-Results.md` |
+| 0 | Scaffolding, config, CI hygiene | ~½ day | ✅ DONE — pushed, 8/8 tests, ruff clean, Python 3.12 venv |
+| 1 | LLM client + persona (Responses API) | ~1 day | ✅ DONE — 22/22 tests, shapes verified vs SDK 3.11.0 |
+| 2 | Schema + repo (parallel with 1) | ~½ day | next |
+| 3 | Conversation engine, state machine, tool registry | ~1.5 days | |
+| 4 | Proactive scheduling, canonical clock, `/advance` | ~1 day | |
+| 5 | Loom parsing + metrics + voice fallback | ~½ day | |
+| 6 | Demo polish, runbook, error handling | ~½ day | |
 
-The spike goes first deliberately. It records a real filler-heavy video, pushes it
-through the local Bot API server, extracts audio with ffmpeg, and transcribes it — testing
-OpenAI and one alternative provider side by side in the same sitting. Everything
-downstream depends on assumptions that only a real `.mp4` can confirm.
+The Phase 0.5 spike ran against a real Loom recording: oEmbed resolves `duration` even
+at the account's default sharing visibility, desktop copy-paste preserves `M:SS`
+paragraph timestamps, the corrected articulation-rate pause estimator produced no
+cancelling residuals, and the fail-soft path degrades exactly as designed. Every
+downstream assumption is now confirmed - nothing below is blocked.
 
 **One risk worth naming up front:** `whisper-1` is the only OpenAI model supporting
-word-level timestamps, and it was deprecated on 26 Aug 2026 (shutdown Feb 2027). It's
-fine for this POC, but there's no OpenAI-side successor for pause metrics at all. The
-transcription module therefore returns a provider-neutral shape so Deepgram or AssemblyAI
-can be dropped in by changing one file.
+word-level timestamps, and it was deprecated on 26 Aug 2026 (shutdown Feb 2027). After
+the Loom pivot it's scoped to the rare voice-fallback "full metrics" branch only, so
+it's fine for this POC. The transcription module returns a provider-neutral shape so
+Deepgram or AssemblyAI can be dropped in by changing one file.
 
 **Ongoing deliverables:** dropped per client decision - the daily 5-minute Loom updates
 and the Excalidraw architecture diagram are no longer required.
@@ -240,29 +242,28 @@ and the Excalidraw architecture diagram are no longer required.
 
 **Prerequisites**
 
-- Python 3.12
+- Python 3.12 (`uv` provisions it automatically if only 3.11 is installed)
 - A Telegram bot token (@BotFather)
-- An OpenAI API key *(still needed — see below)*
-- An `api_id`/`api_hash` pair from my.telegram.org
-- The `telegram-bot-api` binary, run on the host with `--local`
-- `ffmpeg` on PATH
+- An OpenAI API key *(still needed — see below)* — with a spend cap set on the dashboard
+- A Loom account (free Starter tier is fine for the 5-minute path; Business for unlimited length)
+- `ffmpeg` on PATH — *optional now*, only for the rare voice-fallback ASR branch
 
 **Setup**
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements-dev.txt
+uv venv --python 3.12 .venv && source .venv/bin/activate   # or python -m venv
+uv pip install -r requirements-dev.txt                      # or pip install
 cp .env.example .env      # then fill in
 
-# one-time: release the bot token from the cloud API
-curl -X POST "https://api.telegram.org/bot<TOKEN>/logOut"
-
-# start the local Bot API server first, then:
+# start the bot (standard cloud Telegram endpoint, no local server needed)
 python -m bot.main
 ```
 
-Startup runs three pre-flight checks — Telegram token, OpenAI key, local server
-reachability — and refuses to start polling with a single clear message if any fail.
+Startup validates configuration first and refuses to start with one clear message
+listing every problem — never a raw traceback. Once a Telegram token and OpenAI key
+are in `.env`, it runs two live pre-flight checks (Telegram token via `get_me`, OpenAI
+key via a zero-cost `models.list`, both failing before polling starts) — the old
+local-server reachability check is gone because the local server is gone.
 
 **Demo commands**
 
@@ -289,12 +290,10 @@ dashboard as the real backstop.
 
 ## 9. What I need from you
 
-1. **An OpenAI API key** — this is the one hard blocker on end-to-end testing.
-2. **A sanity check on the harness call** (§5). It's the deliberate divergence from your
-   suggestion and the one I'd most like pushback on.
-3. **Whether the demo should run on your bot or mine** — happy either way, but the
-   local Bot API server needs a one-time `logOut` on whichever token we use, which
-   temporarily takes that bot off the cloud endpoint.
+1. **An OpenAI API key** — this is the one hard blocker on end-to-end testing. With
+   a spend cap set dashboard-side as the real cost backstop.
+2. **A Telegram bot token** from @BotFather, and a decision on whether the demo runs
+   on your bot or mine (no `logOut`/local-server step is involved either way now).
 
 ---
 
@@ -306,3 +305,4 @@ dashboard as the real backstop.
 | `Video.md` | Source method analysis (video vs. PDF workbook) |
 | `Plan.md` | Original brief transcript + first-pass design notes |
 | `Chat.md` | Complete planning decision log with rationale |
+| `Phase-0.5-Spike-Results.md` | The executed Loom spike — outputs, formats found, gate verdicts |
