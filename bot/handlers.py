@@ -19,6 +19,7 @@ import re
 from typing import Any
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ChatAction
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -374,7 +375,7 @@ async def _send_with_typing(
     async def pulse() -> None:
         while not stop.is_set():
             try:
-                await ctx.bot.send_chat_action(chat_id, "typing")
+                await ctx.bot.send_chat_action(chat_id, ChatAction.TYPING)
             except Exception:  # noqa: BLE001 - cosmetic only
                 pass
             try:

@@ -366,7 +366,7 @@ class AgentCore:
             unresolved,
         )
         model = config.OPENAI_MODEL_ANALYSIS if trigger else config.OPENAI_MODEL
-        effort = "none"
+        effort = config.ANALYSIS_REASONING_EFFORT if trigger else "none"
 
         # ephemeral metric-trend note on synthesis turns only (never persisted)
         if trigger:

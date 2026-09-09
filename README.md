@@ -230,11 +230,12 @@ unknowns are empirical rather than analytical.
 | 1 | LLM client + persona (Responses API) | ~1 day | ✅ DONE — 22/22 tests, shapes verified vs SDK 3.11.0 |
 | 2 | Schema + repo (parallel with 1) | ~½ day | ✅ DONE — 19 repo tests + 3 scripted scenarios, epoch semantics verified |
 | 3 | Conversation engine, state machine, tool registry, handlers | ~1.5 days | ✅ DONE — 22 engine tests incl. gherkin suite; graph + 24h gate enforced server-side |
-| 4 | Proactive scheduling, hourly sweep, `/advance` checks | ~1 day | next |
-| 5 | Loom parsing + metrics + voice fallback | ~½ day | |
-| 6 | Demo polish, runbook, error handling | ~½ day | |
+| 4 | Proactive scheduling, hourly sweep, `/advance` checks | ~1 day | ✅ DONE — 26 rule-engine + gherkin tests; consolidated proactive messages |
+| 5 | Loom parsing + metrics + voice fallback | ~½ day | ✅ DONE — spike numbers reproduced exactly; 18 tests; fail-soft verified |
+| 6 | Demo polish, runbook, error handling | ~½ day | next — mostly pre-built; OpenAI pre-flight + runbook + logging pins remain |
+| 7 | Research-backed coaching upgrades (see §7 note) | ~1 day | queued — Planning.md Phase 7 |
 
-**Test count so far: 95 passing** (unit + scripted scenarios + Gherkin regression/NFR
+**Test count so far: 152 passing** (unit + scripted scenarios + Gherkin regression/NFR
 suites), ruff clean throughout.
 
 The Phase 0.5 spike ran against a real Loom recording: oEmbed resolves `duration` even
@@ -248,6 +249,22 @@ word-level timestamps, and it was deprecated on 26 Aug 2026 (shutdown Feb 2027).
 the Loom pivot it's scoped to the rare voice-fallback "full metrics" branch only, so
 it's fine for this POC. The transcription module returns a provider-neutral shape so
 Deepgram or AssemblyAI can be dropped in by changing one file.
+
+**Research round (Sept 2026, completed):** compared our prompts and code against recent
+evidence — Bloom (CHI 2026, N=54 RCT), a motivation-aware MI coaching framework (CHI
+2026, N=140), an N=543 goal-setting chatbot RCT (arXiv), and a standalone primary-care
+MI-chatbot RCT. Immediate changes adopted: **self-compassion on misses** and a
+"what made the good days work" follow-up baked into Principle 9; **readiness-gated
+coaching** (reflection questions for uncertain users, planning for action-ready ones) in
+the weekly-cycle instructions; the weekly re-eval trend framed as **where-you-were vs
+where-you-wanted-to-be**; `ChatAction.TYPING` constant; a **config-level reasoning-effort
+dial** (`ANALYSIS_REASONING_EFFORT`) so the documented quality-escalation chain is
+reachable without code changes; and missed-day replanning messages routed through the
+**elevated model tier** (they're trust-critical synthesis moments). Deliberately rejected
+on the same evidence: more metrics (the lever is mindset, not data), safety-benchmark
+work, and self-correction frameworks. The data-backed behavioral capabilities that
+remain — implementation-intention capture (when/where), persisted readiness states, and
+the companion on-device filler counter — are queued as **Phase 7** in Planning.md.
 
 **Ongoing deliverables:** dropped per client decision - the daily 5-minute Loom updates
 and the Excalidraw architecture diagram are no longer required.

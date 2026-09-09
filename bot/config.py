@@ -37,6 +37,8 @@ DEMO_PASSCODE: str = os.getenv("DEMO_PASSCODE", "").strip()
 OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 OPENAI_MODEL_ANALYSIS: str = os.getenv("OPENAI_MODEL_ANALYSIS", "gpt-5.6-sol")
 OPENAI_TRANSCRIBE_MODEL: str = os.getenv("OPENAI_TRANSCRIBE_MODEL", "whisper-1")
+# Escalation dial for the analysis tier (Planning.md chain: none -> low -> medium -> swap)
+ANALYSIS_REASONING_EFFORT: str = os.getenv("ANALYSIS_REASONING_EFFORT", "none").lower()
 LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai").lower()
 ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "").strip()  # optional, unused MVP
 
@@ -74,6 +76,12 @@ def validate() -> dict[str, str]:
 
     if not 0 <= DAILY_TICK_HOUR <= 23:
         problems.append(f"  - DAILY_TICK_HOUR={DAILY_TICK_HOUR} is not an hour (0-23)")
+
+    valid_efforts = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+    if ANALYSIS_REASONING_EFFORT not in valid_efforts:
+        problems.append(
+            f"  - ANALYSIS_REASONING_EFFORT={ANALYSIS_REASONING_EFFORT!r} is not a valid effort"
+        )
 
     if problems:
         raise ConfigError(

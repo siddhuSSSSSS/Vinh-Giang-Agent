@@ -173,12 +173,17 @@ async def initiate_conversation(
         "this) as Vin's sidekick. Current reason(s), first is primary:\\n"
         f"{context_block}\\n\\n"
         "Rules: one short warm message, no bullet points, no guilt, never more "
-        "than one question._today's date does not go in the text."
+        "than one question. Today's date does not appear in the text."
     )
     from bot.llm.persona import UserState, build_system_prompt
 
     persona_state = persona_state or UserState()
     full_instructions = build_system_prompt(persona_state)
+    # missed-day replanning is a trust-critical synthesis moment: elevated tier
+    # (Planning.md phase-1 routing); everything else stays cheap
+    elevated = "missed_day_nudge" in unique
+    model = config.OPENAI_MODEL_ANALYSIS if elevated else config.OPENAI_MODEL
+    effort = config.ANALYSIS_REASONING_EFFORT if elevated else "none"
     result = await llm_client.run_turn(
         input_items=[{
             "role": "assistant",
@@ -187,8 +192,8 @@ async def initiate_conversation(
         }],
         tools=[],
         instructions=full_instructions + "\n\n" + instructions,
-        reasoning_effort="none",
-        model=config.OPENAI_MODEL,
+        reasoning_effort=effort,
+        model=model,
         prompt_cache_key=f"{platform}:{platform_user_id}",
     )
     text = (result.text or "").strip()

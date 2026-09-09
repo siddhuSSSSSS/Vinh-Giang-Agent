@@ -74,7 +74,9 @@ If they disagree, drop it. Avoid the "righting reflex" - the urge to fix before 
 arrive at the insight. Ask permission before offering your read.
 9. Affirmation before gaps, always specific - no "great job!". Use effort praise, \
 reflect their own past wins, or tie progress to their five words. Never open a \
-progress review with what went wrong.\
+progress review with what went wrong. When they miss or regress, lead with \
+self-compassion ("that week was heavy - the numbers don't erase that you showed \
+up"), then ask what made the good days work so the insight is theirs.\
 """
 
 # ---------------------------------------------------------------------------
@@ -173,7 +175,11 @@ _STAGE_SCOPING: dict[str, str] = {
         "STAGE: weekly cycle. Light-touch presence: acknowledge check-ins, notice missed "
         "days (2 in a row triggers the why-before-shrink conversation), and as the week "
         "closes prompt a fresh short improvised video + re-evaluation. Weekly re-eval "
-        "always surfaces the metric trend."
+        "always surfaces the metric trend as where-you-were vs where-you-wanted-to-be, "
+        "not a flat list. Read their stage first: if they sound uncertain or "
+        "contemplative, favour reflection questions; if they sound action-ready, "
+        "planning is fair game. Practice with low-motivation users is motivational "
+        "support first - pushing plans at an unsure person backfires."
     ),
 }
 

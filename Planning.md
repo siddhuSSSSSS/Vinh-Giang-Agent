@@ -462,6 +462,44 @@ weekly_cycle        -> weekly_cycle   (self-loop - the lifelong Kaizen cycle)
 12. **Phase 6**: confirm `python -m bot.main` with bad `OPENAI_API_KEY`/`TELEGRAM_BOT_TOKEN` fails the pre-flight check with one clear message per failing check and never starts polling. Confirm `/wipe`/`/reset` inline-button flow. Force an unhandled exception and confirm graceful recovery, not a crash. Grep `data/access.log`/console output and confirm no passcode/API key/Loom URL/raw content ever appears in a log line.
 13. **Deliverables check** - DROPPED (client decision): the daily Loom updates and Excalidraw diagram are no longer required deliverables.
 
+## Phase 7 - Research-backed coaching improvements (client-approved backlog, Sept 2026)
+
+Definite decisions made during the research round (CHI 2026 x2, arXiv N=543 goal-setting
+RCT, HK primary-care e-MI RCT). NOT built yet - this is the next backlog after Phase 6.
+The cheap prompt-side recommendations (self-compassion on misses, what-helped follow-up
+question, weekly stage-read contingency, why-before-shrink typo fix) and the code polish
+(ChatAction.TYPING constant, ANALYSIS_REASONING_EFFORT config dial, missed-day nudge
+routed through the elevated model tier) were DONE immediately - the items below are the
+data-backed behavioral capabilities that need small schema/prompt additions:
+
+1. **Implementation-intention capture** (arXiv 2602.08636, N=543: feedback-style
+   capture of when/where specifics significantly beat guidance and suggestions alone;
+   goal specificity + implementation-intention quality both improved): during onboarding
+   and at every weekly exercise-design decision point, the agent asks WHEN and WHERE
+   the user will practice/record - persisted via a new `state.recording_plan` field
+   written by `update_user_state` (one nullable column + one schema property; the
+   prompt-side instruction lands in the ` habit_selection` stage scoping).
+2. **Readiness-conditional coaching** (CHI 2026 motivation-aware framework, N=140):
+   push plans only at action-ready users; give motivational support to unsure ones -
+   pushing plans at precontemplation users DECREASED readiness. Two implementation
+   options: (a) prompt-inference only (the agent reads the tone - already half-done
+   in the phase-4 weekly scoping), or (b) a persisted `state.readiness` enum updated
+   at weekly re-evals, deterministically switching the injected decision-point prompt
+   between explore-mode and plan-mode. Prefer (b) for testability once live testing
+   shows which behavior feels right.
+3. **Discrepancy framing on weekly re-eval** (HabitBot BCT 1.6 "discrepancy between
+   current behavior and goal"): when surfacing the metric trend, frame as
+   where-you-were vs where-you-wanted-to-be - already partially in the weekly stage
+   scope; make it a hard requirement + a worked example in the prompt.
+4. **Companion on-device filler counter** (Desert Ant "Uhm", iOS/macOS) if the project
+   grows beyond Telegram - private, free, no uploads (see Further Considerations #15).
+
+NOT pursued (deliberate, per the same research): more metrics (all sources point to
+mindset/relational quality, not more data); red-teaming/safety-benchmark work (Bloom
+contributed one - valuable, out of POC scope; revisit if this ships to real users);
+memory-graph/self-correction frameworks (EMG, SelfCorrect-Agent) - the 7-cap loop +
+error-envelope + graceful-fallback design already covers the practical failure modes.
+
 ## Further considerations
 1. User still needs to obtain an OpenAI API key before Phase 1 can be tested end-to-end.
 2. Full audio/visual heuristic analysis remains explicitly out of scope for now and stubbed via `full_analysis.py` - **now genuinely harder to add later, a real tradeoff of the Loom pivot** (reversed from last round's note): since the bot never holds a copy of the video (Loom hosts it, the bot only ever sees a link + text), a future vision-capable-model pass over frames would need its own separate video-acquisition step, rather than reusing an artifact already sitting locally. **Recommended approach when this feature is eventually built (confirmed via Loom's official pricing page - Business tier and above includes "upload and download videos" as a real feature, not a workaround)**: make it an explicit one-time opt-in re-upload, not automatic reprocessing - the agent asks the user to download their own video from Loom (requires Business tier+) and send that single mp4 file directly to the bot, a rare deliberate action rather than something attempted on every submission. This deliberately avoids scraping/reverse-engineering Loom's CDN or embed player for the raw file (unofficial, undocumented, likely against Loom's ToS, and exactly the same fragility class as the transcript-parsing tradeoff below), and keeps large-file handling scoped to this rare future opt-in moment rather than reopening the local-server question for the core loop. The tradeoff this doesn't remove: that one-time upload would still need real download-size handling (a 20-minute video is still 50-150MB) when the feature is actually built - deferred entirely, not designed now.
