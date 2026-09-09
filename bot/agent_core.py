@@ -21,6 +21,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import quote
 
 from bot import config
 from bot.db.repo import Repo, User, local_midnight_iso
@@ -49,6 +50,7 @@ MAX_TEXT_FOR_WINDOW = 4000  # ordinary chat only; longer input is transcript-lik
 MIN_TRANSCRIPT_HINTS = 2
 
 _TS_LINE = re.compile(r"^\s*(\d{1,2}:\d{2}|\[\d{1,2}:\d{2}\]|\d{1,2}:\d{2}:\d{2})\s")
+LOOM_RE = re.compile(r"https?://(?:www\.)?loom\.com/(?:share|embed)/[A-Za-z0-9]+/?")
 
 
 @dataclass
@@ -245,7 +247,7 @@ class AgentCore:
     async def _attach_media_text(
         self, user: User, eff_day: int, kind: str, text: str
     ) -> TurnOutcome:
-        await self.repo.record_media_ref(
+        mid = await self.repo.record_media_ref(
             user.id, "loom", "pending",
             transcript_text=text if kind == "transcript" else None,
             summary_text=text if kind == "summary" else None,
@@ -253,14 +255,46 @@ class AgentCore:
         await self.repo.log_journal_entry(
             user.id, eff_day, "transcript", f"[{kind} attached - {len(text)} chars]"
         )
+
+        # If link + transcript are both present, compute metrics (Phase 5).
+        row = await self.repo._fetchone(
+            "SELECT * FROM media_refs WHERE id=?", (mid,)
+        )
+        metrics_line = ""
+        if (
+            row is not None
+            and row["kind"] == "loom"
+            and row["transcript_text"]
+            and not row["processed"]
+        ):
+            from bot.analysis.loom import analyze_loom_submission
+
+            result = await analyze_loom_submission(
+                row["transcript_text"], oembed_duration=row["loom_duration_seconds"]
+            )
+            eid = await self.repo.log_journal_entry(
+                user.id, eff_day, "transcript",
+                f"[metrics computed by code - {len(result.metrics)} metrics]",
+            )
+            await self.repo.record_entry_metrics(eid, result.metrics)
+            await self.repo.mark_media_processed(mid)
+            parts = [
+                f"{name.replace('_', ' ')}: {value:g}"
+                for name, value in result.metrics.items()
+            ]
+            metrics_line = " Here's what came out of it - " + ", ".join(parts) + "."
+            for note in result.notes:
+                metrics_line += f" ({note})"
+
         st = await self.repo.get_user_state(user.id)
+        base_reply = (
+            "Transcript received and attached to your recording - thank you. "
+            "I'll dig into the words with you once we're past the 24-hour hold."
+            if st.current_stage in ("initial_recording", "waiting_24h")
+            else "Transcript received and filed for this week's numbers."
+        )
         return TurnOutcome(
-            reply=(
-                "Transcript received and attached to your recording - thank you. "
-                "I'll dig into the words with you once we're past the 24-hour hold."
-                if st.current_stage in ("initial_recording", "waiting_24h")
-                else "Transcript received and filed for this week's numbers."
-            ),
+            reply=base_reply + metrics_line,
             model_used=config.OPENAI_MODEL,
             reasoning_effort="none",
             tool_calls_made=[],
@@ -279,6 +313,34 @@ class AgentCore:
         kind = classify_text(text)
         if kind in ("transcript", "summary"):
             return await self._attach_media_text(user, eff_day, kind, text)
+
+        # defensive: a bare Loom link arriving through the core (the adapter
+        # normally catches it) is still third-submission data, never chat
+        m = LOOM_RE.search(text)
+        if m and kind == "chat" and len(text.strip()) < 200:
+            loom_url = m.group(0)
+            try:
+                import httpx
+
+                duration = None
+                async with httpx.AsyncClient(timeout=20) as client:
+                    resp = await client.get(
+                        "https://www.loom.com/v1/oembed?url=" + quote(loom_url, safe="")
+                    )
+                if resp.status_code == 200:
+                    duration = float(resp.json().get("duration", 0.0)) or None
+            except Exception:  # noqa: BLE001
+                duration = None
+            await self.repo.record_media_ref(
+                user.id, "loom", "pending", loom_url=loom_url,
+                loom_duration_seconds=duration,
+            )
+            return TurnOutcome(
+                reply="Link received - your transcript still needs to arrive.",
+                model_used=config.OPENAI_MODEL,
+                reasoning_effort="none",
+                tool_calls_made=[],
+            )
 
         # ordinary chat: mechanical bookkeeping first (engagement + seen)
         await self.repo.record_daily_engagement(user.id, eff_day)

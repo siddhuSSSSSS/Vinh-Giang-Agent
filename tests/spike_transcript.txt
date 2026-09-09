@@ -1,0 +1,9 @@
+0:00 Yeah, hello, so, uhm, uhm, so what I'm trying to do right now is, uh, here to, you know, uhm, get a agent, or, you know, build an agent, and, you know, test, this is, this is what I'm doing right now is, uh, in a way you could say, huh, this, sorry, this, what I'm doing thing right now is in a way, yeah
+0:32 , this is, you know, first what I'm trying to do is, uh, I'm trying to record a 5-10 minute test loop, you know, with, uhm, uhm, like, uh, you know, maybe deliberate filters and, uh, since the free starters caps die at 5 minutes, so yeah, I think, you know, 5 minutes is fine, so, uhm, uhm, other than
+0:54 that, uhm, I don't know, maybe, it, I, it's like, you know, then other than that, yeah, secondly, I have to copy the transcript out via the transcription pack.
+1:07 and on the desktop, if possible. And, you know, the exact copy text, so it can understand the paragraph and everything else.
+1:16 So, yeah, other than that, I don't know, maybe, yeah, I mean, I'm just, I started building the application, and from what I observed, you know, Hermes, Hermes agent is really, really good.
+1:30 And, uh, yeah, so I've been trying to use that. And so I'm recording here, uh, building my own browser. Setting up things, and, you know, seeing how this goes well.
+1:41 Uhm, other than that, uh, honestly, I don't have that much to say. So, you know, I've also been going through other repos to see if any token works.
+1:53 If any tokens benefit us or something like that. So, yeah. So, before that, I'll share this to, you know, set up the, Repo.
+2:12 And, uh, I don't, I don't know. I mean, I think that is it. Pretty much, that is it, I guess.
