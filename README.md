@@ -3,7 +3,8 @@
 A Telegram agent that turns Vinh Giang's "30-Day Communication Mirror" video from a
 one-time watch into a coaching relationship that actually runs the plan with you.
 
-**Status:** design complete, implementation starting. See [Status & Timeline](#status--timeline).
+**Status:** design complete; implementation in progress — Phases 0.5–3 done
+(95 tests passing), Phase 4 next. See [Status & Timeline](#status--timeline).
 
 ---
 
@@ -109,16 +110,26 @@ stays fully visible.
 
 ```
 bot/
-├── main.py          # Application wiring, pre-flight checks, polling
-├── config.py        # env schema, fail-fast validation
-├── handlers.py      # thin Telegram adapter
-├── agent_core.py    # transport-agnostic conversation engine + tool loop
-├── gates.py         # get_effective_day, is_24h_gate_cleared, is_weekly_reeval_due
-├── scheduler.py     # hourly sweep + one-shot 24h-gate jobs
-├── llm/             # client.py (Responses API), persona.py (system prompt)
-├── db/              # schema.sql, repo.py
-├── analysis/        # transcription.py (ffmpeg + ASR), full_analysis.py (stub)
+├── main.py          # entry: fail-fast config, then polling (post_init pre-flight)
+├── config.py        # env schema, fail-fast validation, placeholder detection
+├── handlers.py      # thin Telegram adapter: passcode gate, /advance, /reset, /wipe,
+│                    #   Loom-link + .txt routing, typing + complete-message bridge
+├── agent_core.py    # transport-agnostic engine: STAGE_TRANSITIONS enforcement,
+│                    #   LLM-facing tool registry (4 tools), transcript-vs-chat
+│                    #   classification, synthesis-trigger routing, 7-cap tool loop
+├── gates.py         # get_effective_day (canonical clock), 24h gate, weekly re-eval
+├── scheduler.py     # Phase 4: hourly sweep + one-shot 24h-gate jobs (stub now)
+├── llm/             # client.py (Responses API client + tool loop, SDK-shape
+│                    #   verified), persona.py (knowledge base + 9 principles + stage
+│                    #   scoping + bounded state summary, <2500 static tokens)
+├── db/              # schema.sql (9 tables, epoch-stamped), repo.py (aiosqlite,
+│                    #   WAL + foreign_keys + busy_timeout, pending-merge media refs)
+├── analysis/        # Phase 5: loom.py (oEmbed + parser, spike-proven),
+│                    #   voice_fallback.py (rare ASR branch), base.py (interface)
 └── adapters/        # placeholder for a future non-Telegram channel
+
+tests/               # 95 tests: unit, scripted scenarios, Gherkin feature files
+└── gherkin/         # regressions.feature, nfr.feature, scenarios.feature, phase3.feature
 ```
 
 **Notable design decisions:**
@@ -181,10 +192,12 @@ shown; what those numbers *mean* is the user's call.
 do tool calling with `reasoning_effort` above `"none"`, and our tools fire every turn —
 so staying there would have permanently blocked the documented quality-escalation path.
 
-**Video, not audio.** Day 2's visual review needs real footage. Telegram round video
-notes cap at 60 seconds and the Bot API caps downloads at 20MB, so this runs through a
-self-hosted local Bot API server. One video from the user covers all three audit days;
-the alternative was asking them to extract and send audio separately every single week.
+**Loom link + transcript, not video uploads.** Day 2's visual review needs real footage,
+but Telegram round video notes cap at 60 seconds and the Bot API caps downloads at 20MB.
+The Loom pivot (see Planning.md) removed the whole local-server/ffmpeg/Whisper pipeline:
+the user records on Loom and sends a share link + pasted transcript - no video ever
+reaches the bot, no local server, no per-minute ASR cost. One recording covers all three
+audit days.
 
 ---
 
@@ -215,11 +228,14 @@ unknowns are empirical rather than analytical.
 | 0.5 | Loom transcript-parsing spike | ~½ day | ✅ DONE — all gates passed, real recording, see `Phase-0.5-Spike-Results.md` |
 | 0 | Scaffolding, config, CI hygiene | ~½ day | ✅ DONE — pushed, 8/8 tests, ruff clean, Python 3.12 venv |
 | 1 | LLM client + persona (Responses API) | ~1 day | ✅ DONE — 22/22 tests, shapes verified vs SDK 3.11.0 |
-| 2 | Schema + repo (parallel with 1) | ~½ day | next |
-| 3 | Conversation engine, state machine, tool registry | ~1.5 days | |
-| 4 | Proactive scheduling, canonical clock, `/advance` | ~1 day | |
+| 2 | Schema + repo (parallel with 1) | ~½ day | ✅ DONE — 19 repo tests + 3 scripted scenarios, epoch semantics verified |
+| 3 | Conversation engine, state machine, tool registry, handlers | ~1.5 days | ✅ DONE — 22 engine tests incl. gherkin suite; graph + 24h gate enforced server-side |
+| 4 | Proactive scheduling, hourly sweep, `/advance` checks | ~1 day | next |
 | 5 | Loom parsing + metrics + voice fallback | ~½ day | |
 | 6 | Demo polish, runbook, error handling | ~½ day | |
+
+**Test count so far: 95 passing** (unit + scripted scenarios + Gherkin regression/NFR
+suites), ruff clean throughout.
 
 The Phase 0.5 spike ran against a real Loom recording: oEmbed resolves `duration` even
 at the account's default sharing visibility, desktop copy-paste preserves `M:SS`
