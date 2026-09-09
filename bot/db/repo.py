@@ -188,6 +188,20 @@ class UsersMixin:
         rows = await self._fetchall("SELECT * FROM users WHERE passcode_verified=1")
         return [_user_from_row(r) for r in rows]
 
+    async def get_users_in_stage(self, stage: str) -> list[tuple[User, Any]]:
+        """Users currently in the given stage, joined with their state."""
+        rows = await self._fetchall(
+            "SELECT u.*, s.current_stage AS _stage FROM users u"
+            " JOIN state s ON s.user_id = u.id WHERE s.current_stage=?",
+            (stage,),
+        )
+        out: list[tuple[User, Any]] = []
+        for row in rows:
+            user = _user_from_row(row)
+            state = await self.get_user_state(user.id)
+            out.append((user, state))
+        return out
+
     async def update_passcode_state(
         self,
         user_id: int,

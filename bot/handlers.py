@@ -176,13 +176,45 @@ async def cmd_advance(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text("usage: /advance [number of days, 1-400]")
         return
     n = int(arg)
-    user = await repo.get_user(user.id)
+    from bot.scheduler import dedupe_reasons, initiate_conversation, run_daily_checks_for_user
 
+    reasons: list[str] = []
+    user = await repo.get_user(user.id)
     for _ in range(n):
         await repo.bump_simulated_day(user.id, 1)
         user = await repo.get_user(user.id)
+        day = get_effective_day(user)
+        # no user message arrived: the sweep for this "day" never saw organic
+        # engagement - exactly how real days flow; admin commands never touch
+        # last_message_at / daily_engagement (Planning.md guard)
+        reason = await run_daily_checks_for_user(repo, user, day)
+        if reason:
+            reasons.append(reason)
     eff = get_effective_day(user)
-    await update.effective_message.reply_text(f"fast-forwarded {n} day(s) - you're on day {eff}.")
+
+    # ONE consolidated message instead of a burst (batching per Planning.md)
+    consolidated_sent = False
+    if reasons:
+        agent: AgentCore = ctx.application.bot_data["agent"]
+        persona_state = await agent._persona_state(user)
+        try:
+            text = await initiate_conversation(
+                _make_send_fn(update, ctx), agent.client, persona_state,
+                reasons=dedupe_reasons(reasons),  # type: ignore[arg-type]
+                platform="telegram",
+                platform_user_id=str(update.effective_user.id),
+            )
+            consolidated_sent = bool(text)
+        except Exception:  # noqa: BLE001 - demo must not die on composition failure
+            logger.exception("consolidated proactive composition failed")
+
+    summary_line = f"fast-forwarded {n} day(s) - you're on day {eff}."
+    if reasons:
+        note = "one consolidated check-in sent" if consolidated_sent else (
+            "check-ins triggered: " + ", ".join(sorted(set(reasons)))
+        )
+        summary_line += f" ({note})."
+    await update.effective_message.reply_text(summary_line)
 
 
 async def cmd_reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -283,6 +315,26 @@ async def on_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+def _app_send_fn(app: Application, chat_id: int):
+    async def send(text: str) -> None:
+        await app.bot.send_message(chat_id=chat_id, text=text)
+    return send
+
+
+def _make_send_fn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    async def send(text: str) -> None:
+        if update.effective_message:
+            await update.effective_message.reply_text(text)
+    return send
+
+
+async def _read_txt(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> str | None:
+    async def send(text: str) -> None:
+        if update.effective_message:
+            await update.effective_message.reply_text(text)
+    return send
+
+
 async def _handle_loom_link(
     update: Update, ctx: ContextTypes.DEFAULT_TYPE, repo: Any, user_id: int, url: str
 ) -> None:
@@ -374,6 +426,24 @@ async def post_init(app: Application) -> None:
     app.bot_data["repo"] = repo
     me = await app.bot.get_me()          # pre-flight 1: Telegram token
     logger.info("pre-flight ok: connected as @%s", me.username)
+
+    # Phase 4 wiring: hourly sweep + re-scan waiting_24h users for their gate jobs
+    from bot import scheduler
+    app.bot_data.setdefault("send_fn", _app_send_fn(app))
+    scheduler.schedule_hourly_sweep(app)
+    waiting = await repo.get_users_in_stage("waiting_24h")
+    from datetime import UTC as _UTC
+    from datetime import datetime as _dt
+    from datetime import timedelta
+    for wu in waiting:
+        wst = await repo.get_user_state(wu.id)
+        if wst.recording_submitted_at:
+            base = _dt.fromisoformat(wst.recording_submitted_at)
+            if base.tzinfo is None:
+                base = base.replace(tzinfo=_UTC)
+            fire = base + timedelta(hours=24)
+            if fire > _dt.now(_UTC):
+                scheduler.schedule_24h_gate_job(app, wu.id, fire)
 
 
 async def post_shutdown(app: Application) -> None:
