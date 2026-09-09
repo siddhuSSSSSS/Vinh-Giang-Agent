@@ -175,8 +175,9 @@ async def initiate_conversation(
         "Rules: one short warm message, no bullet points, no guilt, never more "
         "than one question._today's date does not go in the text."
     )
-    from bot.llm.persona import build_system_prompt
+    from bot.llm.persona import UserState, build_system_prompt
 
+    persona_state = persona_state or UserState()
     full_instructions = build_system_prompt(persona_state)
     result = await llm_client.run_turn(
         input_items=[{
@@ -213,7 +214,7 @@ async def hourly_sweep(context: Any) -> None:
 
     repo = context.application.bot_data["repo"]
     agent = context.application.bot_data["agent"]
-    send_fn = context.application.bot_data["send_fn"]
+    make_send_fn = context.application.bot_data["make_send_fn"]
 
     for user in await repo.get_verified_users():
         # timezone-aware: only proceed when the user's local hour matches
@@ -235,7 +236,9 @@ async def hourly_sweep(context: Any) -> None:
         if reason is not None:
             persona_state = await agent._persona_state(user)
             await initiate_conversation(
-                send_fn,
+                make_send_fn(
+                    context.application, int(user.platform_user_id)
+                ),
                 agent.client,
                 persona_state,
                 [reason],
@@ -265,11 +268,11 @@ async def check_24h_gate(context: Any) -> None:
     state = await repo.get_user_state(user_id)
     if state.current_stage != "waiting_24h":
         return  # moved on already (or /advance ran)
-    send_fn = context.application.bot_data["send_fn"]
+    make_send_fn = context.application.bot_data["make_send_fn"]
     agent = context.application.bot_data["agent"]
     persona_state = await agent._persona_state(user)
     await initiate_conversation(
-        send_fn,
+        make_send_fn(context.application, int(user.platform_user_id)),
         agent.client,
         persona_state,
         ["reengagement_nudge"],  # warm, light - 'day 1 is ready when you are'

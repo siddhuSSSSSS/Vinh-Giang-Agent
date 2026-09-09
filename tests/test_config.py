@@ -19,6 +19,28 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
+@pytest.fixture(autouse=True)
+def _restore_clean_config():
+    """Each test in this file reloads bot.config; the LAST reload would otherwise
+    pollute the import cache (e.g. DAILY_TICK_HOUR=99 leaking into later tests).
+    Always end by reloading under the good baseline."""
+    yield
+    clean = {k: v for k, v in os.environ.items() if k not in {
+        "TELEGRAM_BOT_TOKEN", "OPENAI_API_KEY", "DEMO_PASSCODE", "LLM_PROVIDER",
+        "OPENAI_MODEL", "OPENAI_MODEL_ANALYSIS", "OPENAI_TRANSCRIBE_MODEL",
+        "ANTHROPIC_API_KEY", "DATABASE_PATH", "LOG_LEVEL", "DAILY_TICK_HOUR",
+    }}
+    good = {
+        "TELEGRAM_BOT_TOKEN": "1234567890:AA-real-looking-token-for-tests",
+        "OPENAI_API_KEY": "sk-real-looking-key-for-tests",
+        "DEMO_PASSCODE": "test-passcode",
+    }
+    os.environ.clear()
+    os.environ.update({**clean, **good})
+    import bot.config as cfg
+    importlib.reload(cfg)
+
+
 def _reload_config(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]):
     """Reload bot.config under a controlled environment."""
     clean = {k: v for k, v in os.environ.items() if k not in {

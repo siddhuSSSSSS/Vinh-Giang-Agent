@@ -71,12 +71,6 @@ def register_handlers(app: Application, agent: AgentCore) -> None:
 # ---------------------------------------------------------------------------
 # Helpers (mechanical only)
 # ---------------------------------------------------------------------------
-def _chat_key(update: Update) -> tuple[str, str] | None:
-    if update.effective_user is None:
-        return None
-    return "telegram", str(update.effective_user.id)
-
-
 async def _within_rate_limit(
     repo: Any, user_id: int, min_gap: float = RATE_LIMIT_SECONDS
 ) -> bool:
@@ -328,13 +322,6 @@ def _make_send_fn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     return send
 
 
-async def _read_txt(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> str | None:
-    async def send(text: str) -> None:
-        if update.effective_message:
-            await update.effective_message.reply_text(text)
-    return send
-
-
 async def _handle_loom_link(
     update: Update, ctx: ContextTypes.DEFAULT_TYPE, repo: Any, user_id: int, url: str
 ) -> None:
@@ -427,23 +414,24 @@ async def post_init(app: Application) -> None:
     me = await app.bot.get_me()          # pre-flight 1: Telegram token
     logger.info("pre-flight ok: connected as @%s", me.username)
 
-    # Phase 4 wiring: hourly sweep + re-scan waiting_24h users for their gate jobs
+    # Phase 4 wiring: hourly sweep + re-scan waiting_24h users for their gate jobs.
+    # NOTE: send_fn is built PER USER at send time (chat_id differs per user);
+    # storing a single global send_fn here would be a TypeError/cross-chat bug.
     from bot import scheduler
-    app.bot_data.setdefault("send_fn", _app_send_fn(app))
+    app.bot_data["make_send_fn"] = _app_send_fn
     scheduler.schedule_hourly_sweep(app)
     waiting = await repo.get_users_in_stage("waiting_24h")
     from datetime import UTC as _UTC
     from datetime import datetime as _dt
     from datetime import timedelta
-    for wu in waiting:
-        wst = await repo.get_user_state(wu.id)
-        if wst.recording_submitted_at:
-            base = _dt.fromisoformat(wst.recording_submitted_at)
+    for w_user, w_state in waiting:  # get_users_in_stage returns (user, state) pairs
+        if w_state.recording_submitted_at:
+            base = _dt.fromisoformat(w_state.recording_submitted_at)
             if base.tzinfo is None:
                 base = base.replace(tzinfo=_UTC)
             fire = base + timedelta(hours=24)
             if fire > _dt.now(_UTC):
-                scheduler.schedule_24h_gate_job(app, wu.id, fire)
+                scheduler.schedule_24h_gate_job(app, w_user.id, fire)
 
 
 async def post_shutdown(app: Application) -> None:
