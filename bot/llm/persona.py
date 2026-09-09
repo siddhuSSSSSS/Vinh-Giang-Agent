@@ -199,28 +199,53 @@ class UserState:
     has_recording: bool = False
 
 
+def _truncate(value: str | None, max_chars: int) -> str | None:
+    """Slot-level truncation - context bloat stops HERE, at the point of injection,
+    regardless of what Phase 3 later writes to the DB."""
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    if len(value) <= max_chars:
+        return value
+    return value[: max_chars - 1].rstrip() + "\u2026"
+
+
 def build_state_summary(state: UserState) -> str:
-    """Short, fixed-shape snapshot (bounded ~100-300 tokens by construction)."""
+    """Short, fixed-shape snapshot (bounded ~100-300 tokens by construction).
+
+    Every user-sourced field is truncated at its slot - adversarial DB values
+    (e.g. a 50k-char motivation_summary) cannot blow up the prompt. Names/habits
+    get modest caps; five-word lists get short entries.
+    """
+    five_words = [_truncate(w, 24) for w in state.five_words][:5]
+    five_words = [w for w in five_words if w]
     lines = [
         "CURRENT STATE (system-maintained, may be stale vs conversation):",
         f"- stage: {state.current_stage}",
         f"- day of journey: {state.effective_day}",
-        f"- name: {state.name or 'not shared yet'}",
+        f"- name: {_truncate(state.name, 64) or 'not shared yet'}",
     ]
-    if state.five_words:
-        lines.append(f"- their five words: {', '.join(state.five_words)}")
-    if state.motivation_summary:
-        lines.append(f"- motivation: {state.motivation_summary}")
-    if state.current_habit:
+    if five_words:
+        lines.append(f"- their five words: {', '.join(five_words)}")
+    if state.motivation_summary and _truncate(state.motivation_summary, 280):
+        lines.append(f"- motivation: {_truncate(state.motivation_summary, 280)}")
+    if state.current_habit and _truncate(state.current_habit, 64):
         lines.append(
-            f"- current habit: {state.current_habit} (week {state.week_in_habit})"
+            f"- current habit: {_truncate(state.current_habit, 64)} (week {state.week_in_habit})"
         )
     if state.recent_missed_days:
         lines.append(f"- unresolved missed days: {state.recent_missed_days}")
     if state.timezone:
         lines.append(f"- timezone: {state.timezone}")
     lines.append(f"- recording submitted: {'yes' if state.has_recording else 'no'}")
-    return "\n".join(lines)
+    result = "\n".join(lines)
+    # FINAL hard cap: the summary block never exceeds ~1200 chars, whatever happens
+    # upstream. This is the context-bloat fail-safe of last resort.
+    if len(result) > 1200:
+        result = result[:1199].rsplit("\n", 1)[0]
+    return result
 
 
 STATIC_BLOCKS = (
@@ -244,5 +269,5 @@ def build_system_prompt(state: UserState) -> str:
     return "\n\n".join(parts)
 
 
-# Fraud per plan: "never mix volatile content into the static block" - which is
+# Per plan: "never mix volatile content into the static block" - which is
 # exactly why the day/stage/summary ride at the END, after all static blocks.

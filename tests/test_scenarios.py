@@ -136,8 +136,6 @@ async def test_scenario_c_full_onboarding_to_habit_selection_tool_order(repo):
     }
 
     # --- drive the happy path exactly as Phase 3 will ---
-    user = await repo.get_user(uid)
-    day = day0 = 0
     await executors["update_user_state"](
         timezone="Asia/Kolkata", motivation_summary="wants clarity in meetings"
     )
@@ -154,8 +152,6 @@ async def test_scenario_c_full_onboarding_to_habit_selection_tool_order(repo):
                                       loom_duration_seconds=805.0)
     await executors["advance_stage"](stage="waiting_24h")
 
-    user = await repo.get_user(uid)
-    day = day0  # canonical-day helper consumes day_zero_at + offset
     # 24h gate would clear via day arithmetic; jump straight to audit stages:
     for stage in ("audit_day1", "audit_day2", "audit_day3"):
         await executors["advance_stage"](stage=stage)
@@ -194,8 +190,17 @@ async def test_scenario_c_full_onboarding_to_habit_selection_tool_order(repo):
     state = UserState(
         current_stage="weekly_cycle", current_habit="filler words",
         five_words=["clear", "calm", "confident", "direct", "warm"],
-        timezone="Asia/Kolkata", effective_day=day,
+        timezone="Asia/Kolkata",
     )
     prompt = build_system_prompt(state)
-    assert "ELICIT" in prompt and "they decide; you propose options" in prompt or True
+    assert "ELICIT" in prompt  # decision-point mechanics are stage-independent (static)
+    # the stage-specific scoping for weekly_cycle is present, not habit_selection's text
+    assert "STAGE: weekly cycle." in prompt
+    assert "They decide; you propose options" not in prompt
     assert build_state_summary(state).count("\n") >= 5
+
+    # habit-selection scoping does carry the propose-options rule
+    habit_prompt = build_system_prompt(
+        UserState(current_stage="habit_selection", current_habit="filler words")
+    )
+    assert "They decide; you propose options." in habit_prompt

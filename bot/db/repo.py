@@ -574,9 +574,11 @@ class ConversationMixin:
 class AdminMixin:
     async def reset_user_progress(self, user_id: int) -> None:
         """Atomic multi-table /reset: state to defaults, offset to 0, day_zero
-        re-stamped, epoch incremented; journal/media/conversation history KEPT."""
-        user = await self.get_user(user_id)
-        assert user is not None
+        re-stamped, epoch incremented; journal/media/conversation history KEPT.
+
+        Everything in ONE transaction - the earlier commit-then-write sequencing
+        would have left a half-reset user (state gone, epoch stale) on a crash.
+        """
         conn = self._conn
         await conn.execute("BEGIN")
         try:
@@ -585,16 +587,15 @@ class AdminMixin:
                 "INSERT INTO state (user_id, current_stage) VALUES (?, 'onboarding')",
                 (user_id,),
             )
+            await conn.execute(
+                "UPDATE users SET simulated_day=0, day_zero_at=datetime('now'),"
+                " epoch=epoch+1 WHERE id=?",
+                (user_id,),
+            )
             await conn.commit()
         except Exception:
             await conn.rollback()
             raise
-        await self._execute(
-            "UPDATE users SET simulated_day=0, day_zero_at=datetime('now'),"
-            " epoch=epoch+1 WHERE id=?",
-            (user_id,),
-        )
-        await conn.commit()
 
     async def wipe_user(self, user_id: int) -> None:
         """Atomic full deletion (CASCADE handles most; sweep/lockout columns live on users)."""
@@ -628,7 +629,17 @@ class Repo(
 
 # Convenience factory used by handlers/scheduler in later phases.
 async def open_repo(path: str | None = None) -> Repo:
-    repo = Repo(path or str(config.DATABASE_PATH))
+    target = path or str(config.DATABASE_PATH)
+    # create parent dirs for prod paths - a fresh checkout must not crash on
+    # first boot because data/ doesn't exist yet
+    import pathlib
+
+    parent = pathlib.Path(target).parent
+    if isinstance(target, str) and target != ":memory:" and (
+        str(parent) not in ("", ".")
+    ):
+        parent.mkdir(parents=True, exist_ok=True)
+    repo = Repo(target)
     await repo.connect()
     return repo
 

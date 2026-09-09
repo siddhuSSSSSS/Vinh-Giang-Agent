@@ -14,7 +14,26 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 
 def test_bot_package_imports():
-    pass
+    """The whole bot/* tree (incl. every stub) must import cleanly."""
+    import bot
+    import bot.adapters
+    import bot.agent_core
+    import bot.analysis
+    import bot.analysis.base
+    import bot.analysis.loom
+    import bot.analysis.voice_fallback
+    import bot.config
+    import bot.db
+    import bot.db.repo
+    import bot.gates
+    import bot.handlers
+    import bot.llm
+    import bot.llm.client
+    import bot.llm.persona
+    import bot.main
+    import bot.scheduler
+
+    assert bot is not None and bot.main is not None
 
 
 def test_third_party_deps_importable():

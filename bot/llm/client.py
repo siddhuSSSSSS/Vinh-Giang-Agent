@@ -141,17 +141,6 @@ class OpenAIClient(LLMClient):
         )
 
 
-def _tool_spec_error(result: Any) -> str | None:
-    """Serialize a tool result into the string that goes into function_call_output.
-
-    Returns a JSON error envelope for non-None error results (errors are returned
-    to the model as normal outputs, not exceptions).
-    """
-    if result is None:
-        return None
-    return json.dumps({"error": str(result)})
-
-
 async def run_tool_loop(
     client: LLMClient,
     input_items: list[dict[str, Any]],
@@ -216,6 +205,12 @@ async def run_tool_loop(
                         out = str(ret) if ret is not None else ""
                     except TypeError as exc:  # argument-shape mismatch
                         out = json.dumps({"error": f"bad arguments for {name}: {exc}"})
+                    except Exception as exc:  # noqa: BLE001
+                        # any other tool failure returns to the model as a normal
+                        # output (Planning.md: "tool errors returned as
+                        # function_call_output Items, not exceptions") - the turn
+                        # must never crash the bot because a repo write failed.
+                        out = json.dumps({"error": f"{name} failed: {exc}"})
                 conversation_items.append(
                     {
                         "type": "function_call_output",
@@ -235,18 +230,24 @@ async def run_tool_loop(
 def _item_to_dict(item: Any) -> dict[str, Any]:
     """Convert a raw output item to a plain dict (model_dump or dict attr).
 
-    Items with no serializable body (test doubles, exotic types) are dropped -
-    we never fabricate a passthrough item the API didn't send.
+    Items with no serializable body (test doubles, exotic types, dump() raising)
+    are dropped - we never fabricate a passthrough item the API didn't send.
     """
     if isinstance(item, dict):
         return item
-    dump = getattr(item, "model_dump", None)
-    if callable(dump):
-        data = dump()
-        if isinstance(data, dict):
-            return data
+    try:
+        dump = getattr(item, "model_dump", None)
+        if callable(dump):
+            data = dump()
+            if isinstance(data, dict):
+                return data
+    except Exception:  # noqa: BLE001 - refusing-to-dump items are simply skipped
+        return {}
     # No dumpable body: only keep it if the SDK type itself knows its shape
-    itype = getattr(item, "type", None)
+    try:
+        itype = getattr(item, "type", None)
+    except Exception:  # noqa: BLE001
+        return {}
     if itype in (None, "unknown") or type(item).__module__.startswith("test"):
         return {}  # signal: skip
     return {"type": itype}

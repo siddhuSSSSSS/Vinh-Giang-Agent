@@ -156,11 +156,6 @@ async def test_tool_loop_tool_error_returns_error_json_not_exception():
         LLMTurnResult(text="ok"),
     ]
     client = MockLLMClient(script)
-
-    def illegal_transition(new_stage: str) -> str:  # never called
-        return ""
-
-    client = MockLLMClient(script)
     executors = {"advance_stage": lambda new_stage: f"moved-{new_stage}"}
     final, ephemeral = await run_tool_loop(
         client,
