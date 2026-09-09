@@ -85,12 +85,16 @@ def parse_transcript(raw: str) -> list[Segment]:
         m = _TS_LINE.match(line)
         if m:
             if m.group(1) is not None:          # [M:SS]
+                if int(m.group(1)) > 23:
+                    continue  # corrupt stamp: drop the line (fail-soft, honest)
                 seconds = int(m.group(1)) * 60 + int(m.group(2))
                 text = line[m.end():].strip()
             elif m.group(3) is not None:        # H:MM:SS
                 seconds = int(m.group(3)) * 3600 + int(m.group(4)) * 60 + int(m.group(5))
                 text = line[m.end():].strip()
             else:                               # M:SS
+                if int(m.group(6)) > 23:
+                    continue  # corrupt stamp: drop the line
                 seconds = int(m.group(6)) * 60 + int(m.group(7))
                 text = line[m.end():].strip()
             # spike quirk: strip leading punctuation after the stamp
@@ -194,7 +198,10 @@ def estimate_pauses(
         residuals.append(gap - spoken)
     long_count = sum(1 for r in residuals if r >= LONG_PAUSE_THRESHOLD_S)
     longest = max((r for r in residuals), default=0.0)
-    return long_count, max(longest, 0.0)
+    # the estimated silence in one paragraph can't exceed the recording's speech
+    # span - residual outliers beyond a sane cap indicate corrupt stamps, so we
+    # report a capped value rather than a nonsense number (e.g. 3597s)
+    return long_count, min(max(longest, 0.0), 600.0)
 
 
 # ---------------------------------------------------------------------------

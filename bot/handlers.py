@@ -467,9 +467,6 @@ def run() -> None:
         .build()
     )
 
-    # NOTE: OpenAI pre-flight (client.models.list) happens at first LLM call in
-    # POC scope; Telegram-side check is post_init's get_me.
-
     def _wire(app: Application) -> None:
         agent = build_agent(app)
         register_handlers(app, agent)
