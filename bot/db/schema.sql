@@ -1,0 +1,2 @@
+-- Phase 2 deliverable (Phase 0: empty stub file present so the package is complete).
+-- Full schema arrives in Phase 2 (see Planning.md).

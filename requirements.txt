@@ -1,0 +1,9 @@
+# Runtime dependencies (pinned; verified live against PyPI Sept 2026)
+# - python-telegram-bot 22.8 (Aug 2026, current stable; [job-queue] bundles APScheduler 3.10.4,<3.12)
+# - openai 3.11.0 (released 2026-09-09; Responses API; anthropic dropped per OpenAI-only MVP decision)
+# - aiosqlite: async-safe SQLite wrapper (Phase 2)
+# - python-dotenv: .env loading for config.py
+python-telegram-bot[job-queue]==22.8
+openai==3.11.0
+aiosqlite>=0.20,<0.22
+python-dotenv>=1.0,<2.0
