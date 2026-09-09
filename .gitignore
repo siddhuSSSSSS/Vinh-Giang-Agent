@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets
+.env
+
+# Runtime data
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+*.egg-info/

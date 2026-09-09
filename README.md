@@ -1,0 +1,308 @@
+# Vin's Sidekick — A Communication Coaching Agent on Telegram
+
+A Telegram agent that turns Vinh Giang's "30-Day Communication Mirror" video from a
+one-time watch into a coaching relationship that actually runs the plan with you.
+
+**Status:** design complete, implementation starting. See [Status & Timeline](#status--timeline).
+
+---
+
+## 1. The problem
+
+The source video contains a genuinely good method — record yourself, wait 24 hours,
+audit the recording across three days, pick one habit, work it for a week, re-evaluate.
+But it's a 10-minute video containing a 30-day plan. You watch it, you nod, you close
+the tab. Nothing happens.
+
+The gap isn't information. It's that:
+
+- there's no action wrapped around the plan
+- nothing brings you back to the reference on day 4, day 11, day 23
+- nobody notices when you miss two days in a row, and nothing adapts when you do
+
+So the goal isn't a video summariser or a generic "video → plan" converter. It's a
+single agent that **knows this one video the way an assistant to the creator would**,
+and carries a specific user through it over 30+ days — proactively, adaptively, and
+without sounding like a machine.
+
+**Success criterion:** after 30 days, a measurable and self-recognised improvement in
+how the user communicates.
+
+---
+
+## 2. What the agent actually does
+
+The agent hard-codes Vinh's method as a state machine. The user never supplies the
+video or the framework — the agent already knows it.
+
+```
+onboarding  →  initial_recording  →  waiting_24h  →  audit_day1
+     →  audit_day2  →  audit_day3  →  habit_selection  →  weekly_cycle ⟲
+```
+
+| Stage | What happens |
+|---|---|
+| **Onboarding** | An extended, one-question-at-a-time conversation. Name, what they want to improve, a *specific story* of a time communication went wrong, the workbook's "five words you want people to say about you," and their timezone. Not a form — the agent keeps going until it has a real pattern, not a generic goal. |
+| **Initial recording** | The agent generates **five personalised prompt questions** based on what surfaced in onboarding — deliberately shaped to provoke a mild version of whatever the user described. The user records one improvised 5–20 minute video and sends it. |
+| **24-hour wait** | Enforced server-side. Watching yourself immediately makes you hypercritical; a day's distance makes you objective. If the user tries to skip ahead, the agent explains *why* the wait matters rather than reporting an error. |
+| **Day 1 — Auditory** | Screen turned away, listen only. Rate of speech, volume, pitch, melody, tonality, pauses. The agent keeps the conversation strictly on sound; if the user drifts to appearance, it gently defers that to tomorrow. |
+| **Day 2 — Visual** | Sound off, watch only. Facial expressions, gestures, eye contact. The agent reply-quotes their original video so it's one tap away. |
+| **Day 3 — Transcription** | The synthesis day. The agent has the real transcript with filler words preserved, plus computed metrics, and ties auditory + visual + textual signals together into 2–3 candidate habits. |
+| **Habit selection** | The user picks exactly one thing. |
+| **Weekly cycle** | A behavioural trigger is designed together (Vinh's phone-wallpaper hack, or an alternative). Daily light-touch presence. At week's end, a fresh 5-minute video and a re-evaluation. If no improvement, **the default is to repeat the same habit** — 90% of people need three to four weeks per behaviour. Switching early is available but never the agent's suggestion. |
+| **Lifelong Kaizen** | At the first habit transition, the agent reveals — warmly, as good news — that the "30-day plan" framing was a container. Real mastery is continuous. Delivered alongside a **measured before/after comparison** of the user's own numbers. |
+
+### Adaptive behaviour
+
+- **Missed days are detected on engagement**, not task completion — Vinh's weekly method
+  is a passive trigger, not a daily chore, so "did they show up at all" is the honest signal.
+- **Two missed days trigger a replanning conversation** that asks *why* before offering
+  anything smaller.
+- **Early-stage silence** (onboarding through habit selection — the highest drop-off window)
+  gets a shorter one-day fuse, capped at three nudges so it never becomes nagging.
+- **All proactive messages are composed by the model in context**, never templated, and
+  batched into one coherent message rather than a burst of texts.
+
+---
+
+## 3. How it's designed to feel
+
+This is the part I consider the actual product. The method is Vinh's; the behaviour is
+the engineering.
+
+The persona is built on nine principles, grounded where possible in Motivational
+Interviewing and habit-formation research rather than invented:
+
+1. **The agent's job is for the user to succeed** — the plan bends, always.
+2. **Never assume dishonesty.** If they say they've improved, that's taken as sincere.
+   But the data is still always shown — trust governs how their *interpretation* is
+   treated, never whether they get to see the numbers.
+3. **One habit at a time.** No parallel workstreams.
+4. **The agent leads, the user decides.** It proposes 2–3 grounded options at every
+   decision point; it never proceeds without an explicit choice.
+5. **Warm, non-judgmental, "Vin's sidekick"** — borrowing his tone, not impersonating him.
+6. **Everything meaningful gets journalled** as it's said, not left in chat scrollback.
+7. **Why before shrink.** If someone misses a session, the agent asks what happened with
+   real curiosity *before* offering an easier version. Never a shortcut past the question.
+8. **Observer, not diagnostician.** It reflects what it notices ("I noticed you used 'and'
+   a lot") and asks whether that lands, rather than asserting ("you have a filler-word
+   problem"). If the user disagrees, it drops it. The system prompt explicitly names MI's
+   **"righting reflex"** — the urge to jump in and fix — as a behaviour to avoid.
+9. **Affirmation before gaps, and never generic.** No "Great job!" Instead: effort praise,
+   or reflecting a past success the user themselves described, or tying progress back to
+   their own five words — always grounded in something specific to this person.
+
+Every decision point runs **Elicit → Provide → Elicit**: ask what they think first, ask
+permission before offering the agent's own read, then ask how it lands.
+
+Two smaller choices in service of the same goal: **no token streaming** (people texting
+you don't stream — typing indicator, then a complete message), and replies occasionally
+split into two short bubbles for natural pacing.
+
+---
+
+## 4. Architecture
+
+Python 3.12, `python-telegram-bot` (async), OpenAI Responses API, SQLite via `aiosqlite`.
+No framework beyond that — the tool-calling loop is written by hand so the state model
+stays fully visible.
+
+```
+bot/
+├── main.py          # Application wiring, pre-flight checks, polling
+├── config.py        # env schema, fail-fast validation
+├── handlers.py      # thin Telegram adapter
+├── agent_core.py    # transport-agnostic conversation engine + tool loop
+├── gates.py         # get_effective_day, is_24h_gate_cleared, is_weekly_reeval_due
+├── scheduler.py     # hourly sweep + one-shot 24h-gate jobs
+├── llm/             # client.py (Responses API), persona.py (system prompt)
+├── db/              # schema.sql, repo.py
+├── analysis/        # transcription.py (ffmpeg + ASR), full_analysis.py (stub)
+└── adapters/        # placeholder for a future non-Telegram channel
+```
+
+**Notable design decisions:**
+
+- **Least-agency tool surface.** The model only gets tools representing genuine judgment
+  calls (`advance_stage`, `update_user_state`, `log_journal_entry`, `get_user_state`).
+  Mechanical facts — was a file received, was a day missed — are decided by code, never
+  inferred by the model. `advance_stage` validates against a hard-coded transition graph,
+  so neither a model mistake nor a prompt-injection attempt can skip a stage.
+- **One canonical clock.** `get_effective_day()` = real elapsed days since a per-user
+  anchor, plus a manual offset that `/advance` bumps. Real time advances a user's day
+  automatically; demo time uses the same formula. There is no second definition of "day"
+  anywhere in the codebase.
+- **Three-tier memory.** A bounded static system prompt, a short structured state summary,
+  and a rolling conversation window backed by an append-only summary buffer — so context
+  doesn't grow unbounded over a 30-day relationship. Facts live in structured storage,
+  extracted as they're said, not in raw scrollback.
+- **Metrics are computed in code, never asked of the model.** Filler counts, words per
+  minute, pause detection and repetitions are deterministic arithmetic. Models are bad at
+  counting; SQL and regex are not.
+- **Two-tier model routing.** Routine turns run on a fast, cheap model. The rare
+  high-stakes synthesis moments — Day-3 audit, habit decisions, weekly re-evaluation,
+  adaptive replanning — run on a stronger one. This is a quality decision; the cost
+  difference is a rounding error.
+
+**Cost:** roughly **$1–1.50 per user per month**, transcription being the largest line
+item. Total spend across the entire POC will be under $10.
+
+---
+
+## 5. Judgment calls — the reasoning, not just the outcome
+
+You said you were more interested in the calls than the code, so these are written down
+explicitly rather than left implicit.
+
+**Memory: SQLite + rolling summary, not Obsidian/Mem0/Supermemory.**
+Those are built for semantic retrieval over unstructured notes. This project's actual
+need is structured per-user state, deterministic metrics, and a bounded conversation
+window — a relational shape, not a search shape. Adding a vector layer would be
+solving a problem I don't have.
+
+**Agent leads vs. user leads — resolved in favour of your brief.**
+My original notes argued the agent should never suggest anything upfront and should give
+the user complete autonomy. Your brief asks for adaptive planning and proactive
+messaging. These genuinely conflict, and I went with yours: an agent that never suggests
+puts all the cognitive load on someone who came here *because* they don't know how to
+structure this. The compromise is Principle 4 — the agent always leads with grounded
+options, the user always decides.
+
+**Scope honesty.** "Full user autonomy over the plan" is false by construction. Vinh's
+framework is hard-coded. What the user genuinely chooses is *which* habit and *what*
+exercise. The agent says this plainly rather than pretending otherwise.
+
+**Trust vs. the mirror.** My notes said the user's self-assessment should be conclusive.
+Taken literally, a user could self-report improvement forever and never improve — which
+defeats the entire "communication mirror" premise. Resolved: the numbers are *always*
+shown; what those numbers *mean* is the user's call.
+
+**Responses API over Chat Completions** (reversed mid-planning). Chat Completions can't
+do tool calling with `reasoning_effort` above `"none"`, and our tools fire every turn —
+so staying there would have permanently blocked the documented quality-escalation path.
+
+**Video, not audio.** Day 2's visual review needs real footage. Telegram round video
+notes cap at 60 seconds and the Bot API caps downloads at 20MB, so this runs through a
+self-hosted local Bot API server. One video from the user covers all three audit days;
+the alternative was asking them to extract and send audio separately every single week.
+
+---
+
+## 6. Deliberately out of scope
+
+- **Full audio/visual analysis** — pitch, pace, volume, eye contact, gestures. Stubbed
+  behind a `MediaAnalyzer` interface, with every raw file reference persisted so old
+  recordings can be reprocessed later without re-collecting data.
+- **Clinical language.** Prolongations and blocks (true stuttering markers) need audio
+  signal analysis and aren't reliably detectable from a transcript. The agent measures
+  ordinary disfluencies and never uses the word "stutter" or asserts any fluency-disorder
+  label — it isn't qualified to, and mislabelling would be harmful.
+- **Multi-channel.** Telegram only, but `agent_core` is transport-agnostic and users are
+  keyed on `(platform, platform_user_id)`, so a second adapter is additive.
+- **Production hardening.** Single-process, local polling, no migration framework.
+
+---
+
+## 7. Status & timeline
+
+**Design: complete.** The plan has been through four review passes; the remaining
+unknowns are empirical rather than analytical.
+
+**Next, in order:**
+
+| | Work | Est. |
+|---|---|---|
+| **0.5** | **Media pipeline spike** — the only genuine unknowns live here | ~½ day |
+| 0 | Scaffolding, config, CI hygiene | ~½ day |
+| 1 + 2 | LLM client + persona; schema + repo (parallel) | ~1 day |
+| 3 | Conversation engine, state machine, tool loop | ~1.5 days |
+| 4 | Proactive scheduling, canonical clock, `/advance` | ~1 day |
+| 5 | Transcription + metrics | ~½ day |
+| 6 | Demo polish, runbook, error handling | ~½ day |
+
+The spike goes first deliberately. It records a real filler-heavy video, pushes it
+through the local Bot API server, extracts audio with ffmpeg, and transcribes it — testing
+OpenAI and one alternative provider side by side in the same sitting. Everything
+downstream depends on assumptions that only a real `.mp4` can confirm.
+
+**One risk worth naming up front:** `whisper-1` is the only OpenAI model supporting
+word-level timestamps, and it was deprecated on 26 Aug 2026 (shutdown Feb 2027). It's
+fine for this POC, but there's no OpenAI-side successor for pause metrics at all. The
+transcription module therefore returns a provider-neutral shape so Deepgram or AssemblyAI
+can be dropped in by changing one file.
+
+**Ongoing deliverables:** dropped per client decision - the daily 5-minute Loom updates
+and the Excalidraw architecture diagram are no longer required.
+
+---
+
+## 8. Running it
+
+**Prerequisites**
+
+- Python 3.12
+- A Telegram bot token (@BotFather)
+- An OpenAI API key *(still needed — see below)*
+- An `api_id`/`api_hash` pair from my.telegram.org
+- The `telegram-bot-api` binary, run on the host with `--local`
+- `ffmpeg` on PATH
+
+**Setup**
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+cp .env.example .env      # then fill in
+
+# one-time: release the bot token from the cloud API
+curl -X POST "https://api.telegram.org/bot<TOKEN>/logOut"
+
+# start the local Bot API server first, then:
+python -m bot.main
+```
+
+Startup runs three pre-flight checks — Telegram token, OpenAI key, local server
+reachability — and refuses to start polling with a single clear message if any fail.
+
+**Demo commands**
+
+| Command | Effect |
+|---|---|
+| `/start` | Passcode gate, then onboarding |
+| `/advance [N]` | Fast-forward N simulated days, running every real per-day check |
+| `/reset` | Restart the journey, keeping prior history for reference |
+| `/wipe` | Delete all of this user's data |
+
+`/advance` is what makes a 30-day arc demonstrable in one sitting: it steps day by day
+internally, so missed-day flags, re-evaluation triggers and the 24-hour gate all fire
+exactly as they would in real time — then batches everything the agent wants to say into
+a single coherent message rather than a burst.
+
+**Access control:** anyone who has the bot's link/username **and** the shared passcode
+has full access — the passcode is the only gate, entered on `/start`. Everyone else
+(including anyone who merely finds the bot) is stopped at the gate. Backed by a
+15-minute lockout after 5 failed attempts, per-user rate limiting, and secrets confined
+to a gitignored `.env`. A hard spend cap should be set on the OpenAI key from the
+dashboard as the real backstop.
+
+---
+
+## 9. What I need from you
+
+1. **An OpenAI API key** — this is the one hard blocker on end-to-end testing.
+2. **A sanity check on the harness call** (§5). It's the deliberate divergence from your
+   suggestion and the one I'd most like pushback on.
+3. **Whether the demo should run on your bot or mine** — happy either way, but the
+   local Bot API server needs a one-time `logOut` on whichever token we use, which
+   temporarily takes that bot off the cloud endpoint.
+
+---
+
+## 10. Reference
+
+| File | Contents |
+|---|---|
+| `Planning.md` | Full technical specification — schema, phases, verification |
+| `Video.md` | Source method analysis (video vs. PDF workbook) |
+| `Plan.md` | Original brief transcript + first-pass design notes |
+| `Chat.md` | Complete planning decision log with rationale |
