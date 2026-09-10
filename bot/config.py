@@ -13,6 +13,10 @@ from dotenv import load_dotenv
 
 # Load .env from the project root (one level above this package).
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
+# load_dotenv is bound here so tests can no-op it during module reloads:
+# importlib.reload re-executes the module source, restoring this name to
+# the real loader and re-injecting the repo's real .env values over the
+# test's substituted os.environ. Kept as a module attribute for that reason.
 
 
 class ConfigError(Exception):
@@ -49,6 +53,12 @@ try:
     DAILY_TICK_HOUR: int = int(os.getenv("DAILY_TICK_HOUR", "9"))
 except ValueError:
     DAILY_TICK_HOUR = 9
+# OpenCode-compat bridge (Phase 6.b): 0 disables the bridge server; a port
+# number enables it (4096 matches opencode's default provider habit).
+try:
+    COMPAT_SERVER_PORT: int = int(os.getenv("COMPAT_SERVER_PORT", "0"))
+except ValueError:
+    COMPAT_SERVER_PORT = 0
 
 _REQUIRED = ("TELEGRAM_BOT_TOKEN", "OPENAI_API_KEY", "DEMO_PASSCODE")
 

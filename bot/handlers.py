@@ -432,6 +432,21 @@ async def post_init(app: Application) -> None:
         ) from None
     logger.info("pre-flight 2 ok: OpenAI key accepted")
 
+    # Phase 6.b: optional OpenAI-compatible bridge (OpenCode as a client).
+    # Bind AFTER both pre-flights pass, so a broken key never exposes it.
+    if config.COMPAT_SERVER_PORT:
+        from bot.compat_server import start_compat_server
+
+        agent = app.bot_data.get("agent")
+        if agent is None:  # defensive: _wire() registered it post-build
+            from bot.llm.client import OpenAIClient
+
+            agent = AgentCore(repo, OpenAIClient())
+            app.bot_data["agent"] = agent
+        server = start_compat_server(agent, port=config.COMPAT_SERVER_PORT)
+        app.bot_data["compat_server"] = server
+        logger.info("opencode compat: http://127.0.0.1:%s/v1", config.COMPAT_SERVER_PORT)
+
     # Phase 4 wiring: hourly sweep + re-scan waiting_24h users for their gate jobs.
     # NOTE: send_fn is built PER USER at send time (chat_id differs per user);
     # storing a single global send_fn here would be a TypeError/cross-chat bug.
@@ -453,6 +468,9 @@ async def post_init(app: Application) -> None:
 
 
 async def post_shutdown(app: Application) -> None:
+    compat: Any = app.bot_data.get("compat_server")
+    if compat is not None:
+        compat.shutdown()  # daemon thread; instant
     repo: Any = app.bot_data.get("repo")
     if repo is not None:
         await repo.close()

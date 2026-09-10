@@ -42,14 +42,32 @@ def _restore_clean_config():
 
 
 def _reload_config(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]):
-    """Reload bot.config under a controlled environment."""
+    """Reload bot.config under a controlled environment.
+
+    bot.config runs load_dotenv(<repo>/.env) at import - with the repo's real
+    .env present, that re-injects the real credentials AFTER we scrub
+    os.environ, defeating the substitution (first seen when the .env got its
+    real token). Fix: patch dotenv.load_dotenv to a no-op for the reload, and
+    restore the clean cached config afterwards (same finalizer pattern as
+    conftest).
+    """
     clean = {k: v for k, v in os.environ.items() if k not in {
         "TELEGRAM_BOT_TOKEN", "OPENAI_API_KEY", "DEMO_PASSCODE", "LLM_PROVIDER",
         "OPENAI_MODEL", "OPENAI_MODEL_ANALYSIS", "OPENAI_TRANSCRIBE_MODEL",
         "ANTHROPIC_API_KEY", "DATABASE_PATH", "LOG_LEVEL", "DAILY_TICK_HOUR",
+        "ANALYSIS_REASONING_EFFORT", "COMPAT_SERVER_PORT",
     }}
+    # 1. wipe the in-process env names that the real .env may have already set
     monkeypatch.setattr(os, "environ", {**clean, **env})
+    # 2. bot.config re-executes `from dotenv import load_dotenv` during the
+    #    reload, which rebinds the REAL loader and runs it -> the repo's real
+    #    .env would re-inject real credentials into the substituted env.
+    #    Patch it at the source module so the rebind picks up the no-op.
+    import dotenv as _dotenv
+
+    monkeypatch.setattr(_dotenv, "load_dotenv", lambda *a, **kw: False)
     import bot.config as cfg
+
     importlib.reload(cfg)
     return cfg
 

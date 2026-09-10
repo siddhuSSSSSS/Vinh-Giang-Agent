@@ -3,8 +3,9 @@
 A Telegram agent that turns Vinh Giang's "30-Day Communication Mirror" video from a
 one-time watch into a coaching relationship that actually runs the plan with you.
 
-**Status:** design complete; implementation in progress — Phases 0.5–3 done
-(95 tests passing), Phase 4 next. See [Status & Timeline](#status--timeline).
+**Status:** all planned phases 0.5–6 complete (183 tests passing, ruff clean).
+Phase 7 (research-backed coaching upgrades) queued; OpenCode-compat bridge shipped
+as §8c. Sole live-credential blocker left: the OpenAI API key.
 
 ---
 
@@ -374,6 +375,40 @@ lands on day 8. Each simulated day runs the same checks a real day would.
    is which habit and what exercise. We say so rather than pretend.
 5. The Loom pivot — removing the local-server/ffmpeg/Whisper pipeline before it
    was ever built: less infra, no deprecation risk, zero per-submission ASR cost
+6. The OpenCode-compat bridge (`bot/compat_server.py`) instead of making OpenCode
+   the agent runtime: our least-agency design, tool loop, and Telegram gate stay
+   untouched — OpenCode merely becomes another *client* over the same engine,
+   gated by the same DEMO_PASSCODE. An off-by-default server (COMPAT_SERVER_PORT,
+   0 = disabled) that binds only after both pre-flights pass.
+
+---
+
+### 8c. OpenCode compatibility (optional, off by default)
+
+Point OpenCode at the running bot as an OpenAI-compatible provider. In
+`~/.config/opencode/opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "vinssidekick": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Vin's Sidekick",
+      "options": { "baseURL": "http://127.0.0.1:4096/v1" },
+      "models": { "gpt-5.6-luna": { "name": "Vin's Sidekick (coach)" } }
+    }
+  }
+}
+```
+
+Then set `COMPAT_SERVER_PORT=4096` in `.env` and restart `python -m bot.main`.
+The Bearer token is the same `DEMO_PASSCODE`. What the bridge supports:
+`GET /v1/models`, `POST /v1/chat/completions` (last user message becomes one
+agent turn). What it deliberately does NOT do: streaming, embeddings, the
+Responses-API tool loop — OpenCode talks to the coach's chat surface only.
+The bot's own Telegram behavior is completely unchanged whether or not the
+bridge is enabled.
 
 ---
 
@@ -381,8 +416,7 @@ lands on day 8. Each simulated day runs the same checks a real day would.
 
 1. **An OpenAI API key** — this is the one hard blocker on end-to-end testing. With
    a spend cap set dashboard-side as the real cost backstop.
-2. **A Telegram bot token** from @BotFather, and a decision on whether the demo runs
-   on your bot or mine (no `logOut`/local-server step is involved either way now).
+2. ~~A Telegram bot token~~ — done: `@VinhBuddyKarwaanBot` pre-flight GREEN.
 
 ---
 
