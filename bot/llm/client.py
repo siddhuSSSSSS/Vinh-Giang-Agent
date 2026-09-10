@@ -30,6 +30,19 @@ from openai import AsyncOpenAI
 
 from bot import config
 
+logger = __import__("logging").getLogger(__name__)
+
+
+def _opencode_session_default() -> str:
+    """Stable fallback x-opencode-session ID for OpenCode Go.
+
+    Go requires the header since 2026-09-05. Per-request calls override it
+    with the caller's prompt_cache_key (user key) when present.
+    """
+    import uuid
+
+    return "vins-sidekick-" + uuid.UUID(int=0).hex[:12]
+
 
 class ToolLoopLimitExceeded(Exception):
     """Raised when the tool-execution loop exceeds its safety cap."""
@@ -100,12 +113,18 @@ def _parse_tool_calls(output_items: list[Any]) -> list[ToolCall]:
 class OpenAIClient(LLMClient):
     """Wraps AsyncOpenAI().responses.create for the exact shapes we use.
 
-    Phase 6.c provider seam: with LLM_BASE_URL set (e.g. OpenCode Zen at
-    https://opencode.ai/zen/v1), the same client object targets that backend.
-    Zen's /responses rejects `store` and `prompt_cache_key`, so those are
-    stripped when a custom base URL is set (they are no-ops for us regardless:
-    our SQLite is the single source of truth). Zen also has no `effort:"none"`
-    semantics - the param is simply omitted at effort "none".
+    Phase 6.c provider seam: with LLM_BASE_URL set (e.g. OpenCode Go at
+    https://opencode.ai/zen/go/v1), the same client object targets that
+    backend. Proxy backends reject `store`/`prompt_cache_key`, so those are
+    stripped (no-ops for us regardless: our SQLite is the single source of
+    truth). There is no `effort:"none"` semantics on Zen/Go - the param is
+    simply omitted at effort "none".
+
+    OpenCode Go contract (since 2026-09-05): EVERY request must carry an
+    `x-opencode-session` header - one stable ID per conversation, used for
+    routing and prompt caching. We map it to the caller's prompt_cache_key
+    (= user/thread key) so caching lands where it belongs; absent that, a
+    stable per-process fallback keeps the bot routable.
     """
 
     def __init__(self, client: AsyncOpenAI | None = None) -> None:
@@ -117,6 +136,13 @@ class OpenAIClient(LLMClient):
             kwargs: dict[str, Any] = {"api_key": config.LLM_API_KEY or "unset"}
             if config.LLM_BASE_URL:
                 kwargs["base_url"] = config.LLM_BASE_URL
+                session_id = _opencode_session_default()
+                kwargs["default_headers"] = {"x-opencode-session": session_id}
+                logger.info(
+                    "LLM backend: %s (opencode-session=%s...)",
+                    config.LLM_BASE_URL,
+                    session_id[:12],
+                )
             self._client = AsyncOpenAI(**kwargs)
             self._custom_base = bool(config.LLM_BASE_URL)
 
@@ -157,6 +183,15 @@ class OpenAIClient(LLMClient):
             create_kwargs["store"] = False
             create_kwargs["prompt_cache_key"] = prompt_cache_key
 
+        # OpenCode Go: every request needs x-opencode-session (since
+        # 2026-09-05). Per-CONVERSATION identity: prompt_cache_key carries the
+        # user's cache key from agent_core, so it is exactly the stable ID Go
+        # wants for routing + prompt caching.
+        if self._custom_base and prompt_cache_key:
+            create_kwargs["extra_headers"] = {
+                "x-opencode-session": f"vins-{prompt_cache_key}"
+            }
+
         resp = await self._client.responses.create(**create_kwargs)
         output_items = list(resp.output or [])
         text = (getattr(resp, "output_text", None) or "").strip() or None
@@ -191,6 +226,7 @@ async def run_tool_loop(
     model: str | None = None,
     prompt_cache_key: str | None = None,
     max_iterations: int = 7,
+    strip_status: bool = False,
 ) -> tuple[str, list[dict[str, Any]]]:
     """The hand-written tool-execution loop (lives here until Phase 3 formalizes
     agent_core; the behavior is exactly Planning.md Phase 1's).
@@ -251,6 +287,17 @@ async def run_tool_loop(
                         # function_call_output Items, not exceptions") - the turn
                         # must never crash the bot because a repo write failed.
                         out = json.dumps({"error": f"{name} failed: {exc}"})
+                if strip_status:
+                    # OpenAI-direct: the API pairs function_call_output with the
+                    # call it just returned automatically. Go's upstream does
+                    # NOT - it errors "No tool call found for function call
+                    # output" unless the matching function_call item is present
+                    # in the same request. So echo the call item (minus its own
+                    # `status`, per the strip_status contract above) ahead of
+                    # the output item.
+                    call_item = _item_to_dict(item, strip_status=True)
+                    if call_item:
+                        conversation_items.append(call_item)
                 conversation_items.append(
                     {
                         "type": "function_call_output",
@@ -261,33 +308,41 @@ async def run_tool_loop(
             else:
                 # reasoning (or other ephemeral) items - pass through verbatim,
                 # but never fabricate items we cannot serialize
-                passthrough = _item_to_dict(item)
+                passthrough = _item_to_dict(item, strip_status=strip_status)
                 if passthrough:
                     conversation_items.append(passthrough)
     raise ToolLoopLimitExceeded(max_iterations)  # pragma: no cover - defensive
 
 
-def _item_to_dict(item: Any) -> dict[str, Any]:
+def _item_to_dict(item: Any, *, strip_status: bool = False) -> dict[str, Any]:
     """Convert a raw output item to a plain dict (model_dump or dict attr).
 
     Items with no serializable body (test doubles, exotic types, dump() raising)
     are dropped - we never fabricate a passthrough item the API didn't send.
+
+    strip_status: OpenCode Go's upstream rejects `status` on pass-backed items
+    ("Unknown parameter: input[N].status") even though Go itself returns that
+    field - we round-trip everything Go sends and its own validator calls
+    foul on its own fields. Dropping `status` on custom backends is honest
+    (we don't rely on it) and required for the tool loop to work there.
     """
     if isinstance(item, dict):
-        return item
-    try:
-        dump = getattr(item, "model_dump", None)
-        if callable(dump):
-            data = dump()
-            if isinstance(data, dict):
-                return data
-    except Exception:  # noqa: BLE001 - refusing-to-dump items are simply skipped
-        return {}
-    # No dumpable body: only keep it if the SDK type itself knows its shape
-    try:
-        itype = getattr(item, "type", None)
-    except Exception:  # noqa: BLE001
-        return {}
-    if itype in (None, "unknown") or type(item).__module__.startswith("test"):
-        return {}  # signal: skip
-    return {"type": itype}
+        data = item
+    else:
+        try:
+            dump = getattr(item, "model_dump", None)
+            if callable(dump):
+                data = dump()
+                if not isinstance(data, dict):
+                    return {}
+            else:
+                return {}
+        except Exception:  # noqa: BLE001 - refusing-to-dump items are simply skipped
+            return {}
+    if strip_status:
+        data.pop("status", None)
+        # SDK quirk: pydantic renames the `async` field to `async_` (python
+        # keyword); Go's upstream expects the wire name. Un-rename it.
+        if "async_" in data:
+            data["async"] = data.pop("async_")
+    return data

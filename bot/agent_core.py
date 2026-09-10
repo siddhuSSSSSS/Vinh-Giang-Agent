@@ -393,6 +393,9 @@ class AgentCore:
                 model=model,
                 prompt_cache_key=f"{platform}:{platform_user_id}",
                 max_iterations=TOOL_LOOP_CAP,
+                # OpenCode Go's upstream rejects its own round-tripped
+                # `status` fields on pass-backed items - drop them there.
+                strip_status=bool(config.LLM_BASE_URL),
             )
             tool_trace = [
                 {"call_id": it.get("call_id")}
