@@ -98,11 +98,27 @@ def _parse_tool_calls(output_items: list[Any]) -> list[ToolCall]:
 
 
 class OpenAIClient(LLMClient):
-    """Wraps AsyncOpenAI().responses.create for the exact shapes we use."""
+    """Wraps AsyncOpenAI().responses.create for the exact shapes we use.
+
+    Phase 6.c provider seam: with LLM_BASE_URL set (e.g. OpenCode Zen at
+    https://opencode.ai/zen/v1), the same client object targets that backend.
+    Zen's /responses rejects `store` and `prompt_cache_key`, so those are
+    stripped when a custom base URL is set (they are no-ops for us regardless:
+    our SQLite is the single source of truth). Zen also has no `effort:"none"`
+    semantics - the param is simply omitted at effort "none".
+    """
 
     def __init__(self, client: AsyncOpenAI | None = None) -> None:
         # Real api_key comes from config; tests inject a mock client instead.
-        self._client = client or AsyncOpenAI(api_key=config.OPENAI_API_KEY or "unset")
+        if client is not None:
+            self._client = client
+            self._custom_base = bool(config.LLM_BASE_URL)
+        else:
+            kwargs: dict[str, Any] = {"api_key": config.LLM_API_KEY or "unset"}
+            if config.LLM_BASE_URL:
+                kwargs["base_url"] = config.LLM_BASE_URL
+            self._client = AsyncOpenAI(**kwargs)
+            self._custom_base = bool(config.LLM_BASE_URL)
 
     async def run_turn(
         self,
@@ -120,18 +136,28 @@ class OpenAIClient(LLMClient):
         shapes directly). `instructions` carries the system prompt via the
         dedicated top-level param, never prepended into input_items.
         """
-        resp = await self._client.responses.create(
-            model=model or config.OPENAI_MODEL,
-            instructions=instructions,
-            input=input_items,  # type: ignore[arg-type]
-            tools=tools if tools else None,
+        # Build the request body explicitly (Phase 6.c):
+        # - At effort "none", OMIT reasoning entirely: OpenAI treats it the
+        #   same as {"effort":"none"}, and Zen rejects reasoning: null.
+        # - store=False is OpenAI-opt-out-of-server-storage; Zen rejects it.
+        # - prompt_cache_key: cache hint; Zen rejects it. Only sent to OpenAI.
+        create_kwargs: dict[str, Any] = {
+            "model": model or config.OPENAI_MODEL,
+            "instructions": instructions,
+            "input": input_items,  # type: ignore[arg-type]
+            "stream": False,
+        }
+        if reasoning_effort != "none":
+            create_kwargs["reasoning"] = {"effort": reasoning_effort}
             # Safeguard per plan: cap reasoning-billed output when escalated.
-            max_output_tokens=2048 if reasoning_effort != "none" else None,
-            reasoning={"effort": reasoning_effort},
-            store=False,
-            stream=False,
-            prompt_cache_key=prompt_cache_key,
-        )
+            create_kwargs["max_output_tokens"] = 2048
+        if tools:
+            create_kwargs["tools"] = tools
+        if not self._custom_base:  # OpenAI-direct extras (no-ops elsewhere)
+            create_kwargs["store"] = False
+            create_kwargs["prompt_cache_key"] = prompt_cache_key
+
+        resp = await self._client.responses.create(**create_kwargs)
         output_items = list(resp.output or [])
         text = (getattr(resp, "output_text", None) or "").strip() or None
         return LLMTurnResult(
@@ -139,6 +165,20 @@ class OpenAIClient(LLMClient):
             tool_calls=_parse_tool_calls(output_items),
             raw_output=output_items,
         )
+
+
+_ZEN_BILLING_URL = "https://opencode.ai/workspace/wrk_01KF8AGRK3640Z2PPK9JA82RDW/billing"
+
+
+def _credit_hint(exc: BaseException) -> str | None:
+    """Zen's CreditsError surfaces as a 401 with its own JSON error body.
+
+    The SDK raises a generic AuthenticationError for it - we map the known
+    case to an actionable hint, everything else stays untouched.
+    """
+    if "CreditsError" in str(exc) or "Insufficient balance" in str(exc):
+        return f"LLM backend has no credits - top up at {_ZEN_BILLING_URL}"
+    return None
 
 
 async def run_tool_loop(

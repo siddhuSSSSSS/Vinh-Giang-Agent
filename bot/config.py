@@ -46,6 +46,15 @@ ANALYSIS_REASONING_EFFORT: str = os.getenv("ANALYSIS_REASONING_EFFORT", "none").
 LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai").lower()
 ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "").strip()  # optional, unused MVP
 
+# --- Provider seam (Phase 6.c): Zen/other OpenAI-shaped backends ----------
+# Unset LLM_BASE_URL -> AsyncOpenAI default (api.openai.com). LLM_API_KEY
+# falls back to OPENAI_API_KEY. Voice-fallback STT (whisper-1) stays on
+# OpenAI direct: TRANSCRIBE_API_KEY / TRANSCRIBE_BASE_URL likewise fall back.
+LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "").strip()
+LLM_API_KEY: str = os.getenv("LLM_API_KEY", "").strip() or OPENAI_API_KEY
+TRANSCRIBE_API_KEY: str = os.getenv("TRANSCRIBE_API_KEY", "").strip()
+TRANSCRIBE_BASE_URL: str = os.getenv("TRANSCRIBE_BASE_URL", "").strip()
+
 # --- Runtime ---
 DATABASE_PATH: Path = Path(os.getenv("DATABASE_PATH", "data/bot.db"))
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()

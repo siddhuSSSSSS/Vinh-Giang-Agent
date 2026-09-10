@@ -194,6 +194,27 @@ async def full_metrics_pipeline(
     return analyze_voice_transcript(transcript, duration, words)
 
 
+def transcript_client() -> Any | None:
+    """OpenAI-direct client for whisper-1 STT, or None when unavailable.
+
+    STT is NOT available on OpenAI-shaped proxies (Zen et al.) - this stays
+    pinned to OpenAI direct, using TRANSCRIBE_* overrides when present. When
+    no OpenAI-direct key can be resolved, the caller degrades to self-report
+    (the rare voice-fallback branch is honestly unavailable, not a crash).
+    """
+    from openai import AsyncOpenAI
+
+    key = config.TRANSCRIBE_API_KEY or (
+        None if config.LLM_BASE_URL else config.LLM_API_KEY
+    )
+    if not key:
+        return None
+    kwargs: dict[str, Any] = {"api_key": key}
+    if config.TRANSCRIBE_BASE_URL:
+        kwargs["base_url"] = config.TRANSCRIBE_BASE_URL
+    return AsyncOpenAI(**kwargs)
+
+
 __all__ = (
     "VoiceAnalysisResult",
     "full_metrics_pipeline",
@@ -202,4 +223,5 @@ __all__ = (
     "audio_words_to_segments",
     "needs_conversion",
     "convert_ogg_to_wav",
+    "transcript_client",
 )

@@ -26,7 +26,7 @@ from urllib.parse import quote
 from bot import config
 from bot.db.repo import Repo, User, local_midnight_iso
 from bot.gates import get_effective_day, is_24h_gate_cleared
-from bot.llm.client import run_tool_loop
+from bot.llm.client import _credit_hint, run_tool_loop
 from bot.llm.persona import UserState, build_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -399,10 +399,11 @@ class AgentCore:
                 for it in ephemeral or []
                 if it.get("type") == "function_call_output"
             ]
-        except Exception:
+        except Exception as exc:
             logger.exception("turn failed for user %s", user.id)
+            hint = _credit_hint(exc)  # Zen CreditsError -> actionable line
             return TurnOutcome(
-                reply="Hit a snag there - let's try that again.",
+                reply=hint or "Hit a snag there - let's try that again.",
                 model_used=model,
                 reasoning_effort=effort,
                 tool_calls_made=tool_trace,

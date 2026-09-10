@@ -18,7 +18,11 @@ def test_preflight_openai_probe_exists_in_post_init():
     src = inspect.getsource(handlers.post_init)
     assert "models.list" in src
     assert "stop_running" in src
-    assert "OPENAI_API_KEY is invalid" in src
+    # Phase 6.c: the probe honors LLM_API_KEY/LLM_BASE_URL and names the
+    # backend in the abort message
+    assert "LLM_API_KEY" in src
+    assert "LLM_BASE_URL" in src
+    assert "LLM key rejected" in src
 
 
 def test_main_pins_noisy_loggers():

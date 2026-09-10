@@ -415,22 +415,29 @@ async def post_init(app: Application) -> None:
     me = await app.bot.get_me()          # pre-flight 1: Telegram token
     logger.info("pre-flight 1 ok: connected as @%s", me.username)
 
-    # pre-flight 2: OpenAI key (zero-cost models.list) - a bad key must stop
-    # polling BEFORE the bot ever claims to be alive (Planning.md step 12)
+    # pre-flight 2: LLM backend key (zero-cost models list) - a bad key must
+    # stop polling BEFORE the bot ever claims to be alive (Planning.md step 12).
+    # Phase 6.c: honors LLM_BASE_URL/LLM_API_KEY (OpenCode Zen or OpenAI direct).
     from openai import AsyncOpenAI
 
+    probe_kwargs: dict[str, Any] = {"api_key": config.LLM_API_KEY}
+    if config.LLM_BASE_URL:
+        probe_kwargs["base_url"] = config.LLM_BASE_URL
     try:
-        probe = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+        probe = AsyncOpenAI(**probe_kwargs)
         await probe.models.list()
     except Exception as exc:  # noqa: BLE001
-        logger.error("pre-flight 2 FAILED: OpenAI key rejected (%s: %s)",
-                     type(exc).__name__, exc)
+        where = config.LLM_BASE_URL or "OpenAI"
+        logger.error("pre-flight 2 FAILED: %s rejected the key (%s: %s)",
+                     where, type(exc).__name__, exc)
         await app.stop_running()
         raise SystemExit(
-            "startup aborted: OPENAI_API_KEY is invalid or rejected by OpenAI. "
+            f"startup aborted: LLM key rejected by {where} "
+            f"(LLM_BASE_URL={config.LLM_BASE_URL or 'default'}). "
             "Fix the key in .env and restart - polling never started."
         ) from None
-    logger.info("pre-flight 2 ok: OpenAI key accepted")
+    logger.info("pre-flight 2 ok: %s key accepted",
+                config.LLM_BASE_URL or "OpenAI")
 
     # Phase 6.b: optional OpenAI-compatible bridge (OpenCode as a client).
     # Bind AFTER both pre-flights pass, so a broken key never exposes it.

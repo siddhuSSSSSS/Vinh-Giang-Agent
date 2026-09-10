@@ -222,6 +222,12 @@ async def test_client_run_turn_passes_exact_params(monkeypatch):
     class FakeAsyncOpenAI:
         responses = FakeResponses()
 
+    # Pin the provider mode: this test asserts the OpenAI-direct contract
+    # (store/prompt_cache_key sent). The .env may or may not carry a custom
+    # LLM_BASE_URL depending on the machine, so pin it explicitly.
+    from bot import config as _config
+
+    monkeypatch.setattr(_config, "LLM_BASE_URL", "")  # OpenAI-direct
     client = OpenAIClient(client=FakeAsyncOpenAI())  # type: ignore[arg-type]
     result = await client.run_turn(
         input_items=[{"role": "user", "content": "hey"}],
@@ -244,8 +250,8 @@ async def test_client_run_turn_passes_exact_params(monkeypatch):
     assert captured["model"] == "gpt-5.6-sol"
     assert captured["instructions"] == "SYSTEM"
     assert captured["reasoning"] == {"effort": "low"}
-    assert captured["store"] is False
     assert captured["stream"] is False
+    assert captured["store"] is False  # OpenAI-direct extras retained (:base unset in test env)
     assert captured["prompt_cache_key"] == "user-1"
     assert captured["max_output_tokens"] == 2048  # safeguard when escalated
 
