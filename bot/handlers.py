@@ -412,6 +412,11 @@ async def post_init(app: Application) -> None:
 
     repo = await open_repo(str(config.DATABASE_PATH))
     app.bot_data["repo"] = repo
+    # Wiring lives HERE, after the repo is seeded: build_agent reads
+    # bot_data["repo"], which run()'s old pre-post_init _wire call could
+    # never see (first real run_polling smoke test found this).
+    agent = build_agent(app)
+    register_handlers(app, agent)
     me = await app.bot.get_me()          # pre-flight 1: Telegram token
     logger.info("pre-flight 1 ok: connected as @%s", me.username)
 
@@ -492,10 +497,7 @@ def run() -> None:
         .build()
     )
 
-    def _wire(app: Application) -> None:
-        agent = build_agent(app)
-        register_handlers(app, agent)
-
-    # PTB permits handler registration after build; wire then run.
-    _wire(app)
+    # Handler wiring moved into post_init: build_agent needs bot_data["repo"],
+    # which only exists after post_init opens the repo. Wiring before
+    # post_init raised KeyError: 'repo' on the first real run_polling boot.
     app.run_polling(allowed_updates=Update.ALL_TYPES)
