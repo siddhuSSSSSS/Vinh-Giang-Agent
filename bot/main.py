@@ -12,6 +12,7 @@ Phase 6 deliverable. Startup order per Planning.md:
 from __future__ import annotations
 
 import logging
+import signal
 
 from bot import config, handlers
 
@@ -24,12 +25,38 @@ def _setup_logging() -> None:
         logging.getLogger(name).setLevel(logging.WARNING)
 
 
+def _install_sigterm() -> None:
+    """SIGTERM (systemd stop / docker stop) -> graceful stop, same as Ctrl+C.
+
+    PTB's run_polling handles KeyboardInterrupt as a normal stop path (updater
+    stop, job queue drain, post_shutdown hooks). A raw terminal signal would
+    otherwise yank the loop, leaving the aiosqlite connection and apscheduler
+    threads to die in the awkward "Exception ignored in threading" way. The
+    handler simply raises KeyboardInterrupt in the main thread at the next
+    convenient moment - exactly what a Ctrl+C does.
+    """
+
+    def _handler(signum: int, _frame: object) -> None:
+        # raising inside signal_slot threads is unsafe; only raise on the
+        # signal-handling thread == main thread (signal handlers run there)
+        raise KeyboardInterrupt  # noqa: TRY002 - that IS the graceful path
+
+    try:
+        signal.signal(signal.SIGTERM, _handler)
+    except (ValueError, OSError):
+        # not the main thread (e.g. tests importing this module) - skip trap
+        pass
+
+
 def main() -> None:
     _setup_logging()
     try:
         config.validate()
     except config.ConfigError as exc:
         raise SystemExit(str(exc)) from None
+    _install_sigterm()
+    # SIGINT already behaves as KeyboardInterrupt natively - both signals now
+    # take the SAME graceful path through PTB's stop lifecycle.
     handlers.run()
 
 
