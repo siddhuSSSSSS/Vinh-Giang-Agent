@@ -115,8 +115,17 @@ async def _check_passcode(update: Update, ctx: ContextTypes.DEFAULT_TYPE, repo: 
     text = (update.effective_message.text or "").strip()
     # accept the passcode straight from /start or as a follow-up message
     candidate = text.replace("/start", "", 1).strip()
-    if not candidate and ctx.user_data is not None:
-        candidate = ""
+    if not candidate:
+        # First touch with no code: nobody has been greeted yet. A warm hello
+        # that explains the gate and asks for the code - NOT a failed attempt
+        # (Chat.md gate design: mechanical first, but still warm; counting the
+        # user's first hello against the brute-force budget would be wrong).
+        await update.effective_message.reply_text(
+            "Hey! Lovely to see you here. Before we dive in, I just need the "
+            "quick access code you were given - send it as "
+            "/start <code> (or just type it) and we'll get started."
+        )
+        return False
     if candidate == config.DEMO_PASSCODE:
         await repo.update_passcode_state(user.id, verified_delta=1)
         # fresh verification resets the attempt counter
